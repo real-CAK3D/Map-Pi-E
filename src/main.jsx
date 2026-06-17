@@ -176,7 +176,17 @@ function App() {
   const [plantPhoto, setPlantPhoto] = useState(null);
   const [queuedRequest, setQueuedRequest] = useState('');
 
-  const area = AREAS[planner.area] || AREAS.georgia;
+  useEffect(() => {
+    const routePackVersion = 'nh-me-2026-06-17';
+    if (localStorage.getItem('mapPi.routePackVersion') === routePackVersion) return;
+    setPlanner({
+      area: 'graftonSpeck', direction: 'northbound', startId: 'rt26-grafton', endId: 'speck-pond', destinationMode: 'dropdown', destinationId: 'speck-pond', destinationName: '', coordText: '44.5637, -70.9734', notes: 'Field test: Route 26 / Grafton Notch to Speck Pond.', selectedMapId: 'speck-pond',
+    });
+    setManualPosition({ lat: 44.5935, lon: -70.9466, label: 'Route 26 / Grafton Notch manual start' });
+    localStorage.setItem('mapPi.routePackVersion', routePackVersion);
+  }, [setPlanner, setManualPosition]);
+
+  const area = AREAS[planner.area] || AREAS.graftonSpeck;
   const ordered = planner.direction === 'southbound' ? [...area.waypoints].reverse() : area.waypoints;
   const startIdx = Math.max(0, ordered.findIndex(w => w.id === planner.startId));
   const endIdxRaw = ordered.findIndex(w => w.id === planner.endId);
