@@ -47,10 +47,21 @@ h1 { font-size: clamp(3.2rem, 9vw, 7.3rem); line-height: .82; margin: 12px 0 20p
 .manual-grid svg { color: #bfe0a9; }
 .manual-grid p { color: #d4c9a8; line-height: 1.45; }
 .feeds { margin-top: 18px; padding: 22px; }
+.field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 18px; }
+.upload-box { margin: 16px 0; min-height: 120px; border: 2px dashed rgba(191,224,169,.45); border-radius: 22px; display: grid; place-items: center; gap: 8px; text-align: center; color: #e8f6d6; background: rgba(0,0,0,.18); cursor: pointer; padding: 18px; }
+.upload-box input { display: none; }
+.upload-box svg, .safety-callout svg { color: #f3bd5b; }
+.safety-callout { display: flex; gap: 10px; align-items: flex-start; padding: 14px; border-radius: 16px; background: rgba(226, 162, 65, .14); border: 1px solid rgba(226, 162, 65, .3); color: #ffe4a8; font-weight: 750; line-height: 1.45; }
+.plant-lab ul { color: #d4c9a8; line-height: 1.7; padding-left: 20px; }
+.request-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; margin: 16px 0; }
+.request-row input { width: 100%; border: 1px solid rgba(255,255,255,.14); background: rgba(0,0,0,.25); color: #f7f1df; border-radius: 14px; padding: 13px 14px; font: inherit; }
+.request-row button { border: 0; border-radius: 14px; background: #bfe0a9; color: #142116; font-weight: 900; padding: 0 14px; display: inline-flex; align-items: center; gap: 7px; }
+.drop-card { padding: 14px 0; border-top: 1px solid rgba(255,255,255,.09); display: grid; gap: 4px; }
+.drop-card span, .drop-card p, .drop-card small { color: #d4c9a8; margin: 0; }
 .feed-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
 .feed { padding: 14px; border-radius: 18px; background: rgba(255,255,255,.07); display: grid; gap: 8px; }
 .feed svg { color: #e2a241; }
 .feed span { color: #d4c9a8; font-size: .9rem; }
 footer { text-align: center; padding: 28px 10px 8px; }
-@media (max-width: 900px) { .hero, .main-grid { grid-template-columns: 1fr; } .compass-card { width: 180px; justify-self: center; } .status-grid, .feed-grid { grid-template-columns: repeat(2, 1fr); } .trail-map { min-height: auto; } }
-@media (max-width: 520px) { .app-shell { padding: 10px; } .hero, .panel, .feeds, .trail-map { border-radius: 22px; padding: 18px; } h1 { font-size: 4.2rem; } .status-grid, .manual-grid, .feed-grid { grid-template-columns: 1fr; } .trail-map svg { height: 440px; } }
+@media (max-width: 900px) { .hero, .main-grid, .field-grid { grid-template-columns: 1fr; } .compass-card { width: 180px; justify-self: center; } .status-grid, .feed-grid { grid-template-columns: repeat(2, 1fr); } .trail-map { min-height: auto; } }
+@media (max-width: 520px) { .app-shell { padding: 10px; } .hero, .panel, .feeds, .trail-map { border-radius: 22px; padding: 18px; } h1 { font-size: 4.2rem; } .status-grid, .manual-grid, .feed-grid { grid-template-columns: 1fr; } .request-row { grid-template-columns: 1fr; } .request-row button { justify-content: center; min-height: 44px; } .trail-map svg { height: 440px; } }

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BatteryCharging, Bluetooth, CloudSun, Compass, Database, GitBranch, MapPin, Mountain, Navigation, RadioTower, Route, Satellite, ShieldAlert, TentTree, ThermometerSun, Wifi, Droplets, Flame, Leaf, LocateFixed } from 'lucide-react';
+import { AlertTriangle, Bluetooth, Camera, Compass, Database, GitBranch, MapPin, Mountain, Navigation, RadioTower, Route, Satellite, Send, ShieldAlert, TentTree, ThermometerSun, Upload, Users, Wifi, Droplets, Flame, Leaf, LocateFixed } from 'lucide-react';
 import './styles.css';
 
 const waypoints = [
@@ -28,6 +28,19 @@ const dataFeeds = [
   ['Bluetooth sensors', 'optional later', Bluetooth],
 ];
 
+const plantSources = [
+  'Phone camera/photo upload over hotspot or Tailscale web UI',
+  'Offline guide pack: USDA PLANTS / Wikidata / GBIF taxonomy candidates',
+  'Poison and edible warnings require multiple-source confirmation',
+  'Ollama vision should run on stronger local hardware when possible',
+];
+
+const dropLocations = [
+  { name: 'Neel Gap supply window', mile: 31.3, status: 'Open for requests', supplies: 'Food, socks, water tabs', eta: 'Signal queued until online' },
+  { name: 'Hiawassee shuttle board', mile: 69.2, status: 'Trail-hand planned', supplies: 'Fuel can, battery bank, first-aid', eta: 'Request drafts offline' },
+  { name: 'Franklin road crossing', mile: 109.5, status: 'Needs confirmation', supplies: 'Meal drop, dry bag swap', eta: 'Send when service returns' },
+];
+
 function useTrailStats(position) {
   return useMemo(() => {
     const totalMiles = 2197.4;
@@ -48,7 +61,15 @@ function useTrailStats(position) {
 function App() {
   const [position, setPosition] = useState(null);
   const [geoStatus, setGeoStatus] = useState('Idle — use phone browser location for early testing.');
+  const [plantPhoto, setPlantPhoto] = useState(null);
+  const [queuedRequest, setQueuedRequest] = useState('');
   const stats = useTrailStats(position);
+
+  const handlePlantPhoto = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setPlantPhoto({ name: file.name, size: `${Math.round(file.size / 1024)} KB`, type: file.type || 'photo' });
+  };
 
   const getLocation = () => {
     if (!navigator.geolocation) {
@@ -131,6 +152,35 @@ function App() {
         <div className="panel glass">
           <div className="section-title"><ShieldAlert/> Camp + safety manuals</div>
           <div className="manual-grid">{manuals.map(({icon: Icon, title, text}) => <article key={title}><Icon/><strong>{title}</strong><p>{text}</p></article>)}</div>
+        </div>
+      </section>
+
+      <section className="field-grid">
+        <div className="panel glass plant-lab">
+          <div className="section-title"><Camera/> Plant photo triage</div>
+          <p className="muted">Upload from the phone camera over the app/hotspot first. Bluetooth file transfer can be a fallback, but the web upload path will be cleaner for trail use.</p>
+          <label className="upload-box">
+            <Upload/>
+            <span>{plantPhoto ? `${plantPhoto.name} · ${plantPhoto.size}` : 'Choose a plant photo'}</span>
+            <input type="file" accept="image/*" capture="environment" onChange={handlePlantPhoto} />
+          </label>
+          <div className="safety-callout"><AlertTriangle/> Never eat from AI output alone. Map-Pi will return confidence, lookalikes, poisonous warnings, and “do not consume” by default when uncertain.</div>
+          <ul>{plantSources.map(source => <li key={source}>{source}</li>)}</ul>
+        </div>
+
+        <div className="panel glass drops-panel">
+          <div className="section-title"><Users/> Trail-hand supply drops</div>
+          <p className="muted">Meet-up spots can be visible on the hike. Requests should queue offline and send later through cellular/Wi-Fi/Supabase when service returns.</p>
+          <div className="request-row">
+            <input value={queuedRequest} onChange={(e) => setQueuedRequest(e.target.value)} placeholder="Request food, fuel, socks, water tabs…" />
+            <button><Send size={16}/> Queue</button>
+          </div>
+          {dropLocations.map(drop => <article className="drop-card" key={drop.name}>
+            <strong>{drop.name}</strong>
+            <span>Mile {drop.mile} · {drop.status}</span>
+            <p>{drop.supplies}</p>
+            <small>{drop.eta}</small>
+          </article>)}
         </div>
       </section>
 
