@@ -40,6 +40,9 @@ select option { background: #17331f; color: #f7f1df; }
 .mini-stats span, .chosen-destination { padding: 11px; border-radius: 14px; background: rgba(255,255,255,.07); color: #e9dfbf; }
 .trail-map svg, .map-choice svg { width: 100%; min-height: 430px; background: linear-gradient(180deg, rgba(191,224,169,.1), rgba(106,74,37,.18)); border-radius: 20px; border: 1px solid rgba(255,255,255,.08); }
 .terrain { fill: none; stroke: #e2a241; stroke-width: 9; stroke-linecap: round; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
+.osm-trail { fill: none; stroke: #7ee06f; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgba(0,0,0,.45)); }
+.source-note { margin-top: 10px; color: #d4c9a8; font-size: .86rem; line-height: 1.45; }
+.source-note code { color: #bfe0a9; }
 .pin { cursor: pointer; }
 .pin circle { fill: #bfe0a9; stroke: #112317; stroke-width: 3; transition: .18s ease; }
 .pin.dest circle { fill: #ffdb77; stroke: #fff6c8; }

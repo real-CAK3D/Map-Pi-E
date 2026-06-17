@@ -175,6 +175,23 @@ function App() {
   const [geoStatus, setGeoStatus] = useState('Idle — use phone GPS or manual coordinates.');
   const [plantPhoto, setPlantPhoto] = useState(null);
   const [queuedRequest, setQueuedRequest] = useState('');
+  const [trailGeometry, setTrailGeometry] = useState(null);
+  const [trailGeometryStatus, setTrailGeometryStatus] = useState('Loading OSM trail geometry…');
+
+  useEffect(() => {
+    fetch('/trails/grafton-speck-osm.geojson')
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((data) => {
+        const featureCount = data?.features?.length || 0;
+        const pointCount = (data?.features || []).reduce((sum, feature) => sum + (feature.geometry?.coordinates?.length || 0), 0);
+        setTrailGeometry(data);
+        setTrailGeometryStatus(`Loaded real OSM trail geometry: ${featureCount} segments / ${pointCount} points.`);
+      })
+      .catch((error) => setTrailGeometryStatus(`Trail geometry unavailable: ${error.message}`));
+  }, []);
 
   useEffect(() => {
     const routePackVersion = 'nh-me-2026-06-17';
@@ -272,8 +289,8 @@ function App() {
 
     <nav className="tab-bar glass">{tabs.map(([id, label, Icon]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}><Icon size={17}/><span>{label}</span></button>)}</nav>
 
-    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={route} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} />}
-    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={route} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} />}
+    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={route} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={trailGeometry} trailGeometryStatus={trailGeometryStatus} />}
+    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={route} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={trailGeometry} />}
     {activeTab === 'navigate' && <Navigate settings={settings} route={route} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} />}
     {activeTab === 'waypoints' && <Waypoints settings={settings} route={route} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
     {activeTab === 'drops' && <Drops drops={defaultDrops} queuedRequest={queuedRequest} setQueuedRequest={setQueuedRequest} queueSupplyRequest={queueSupplyRequest} requestQueue={hike.requestQueue || []} destination={destination} />}
@@ -284,7 +301,7 @@ function App() {
   </main>;
 }
 
-function Dashboard({ settings, area, route, hike, current, destination, navigation, setActiveTab }) {
+function Dashboard({ settings, area, route, hike, current, destination, navigation, setActiveTab, trailGeometry, trailGeometryStatus }) {
   return <section className="page-grid">
     <Metric icon={Flag} label="Selected route" value={`${route[0]?.name} → ${route.at(-1)?.name}`} sub={area.description} />
     <Metric icon={Navigation} label="To destination" value={fmtMiles(navigation.toDestination, settings.units)} sub={destination?.name || 'No destination'} />
@@ -292,7 +309,8 @@ function Dashboard({ settings, area, route, hike, current, destination, navigati
     <Metric icon={Home} label="Last waypoint" value={navigation.last?.name || '—'} sub={fmtMiles(navigation.last?.distance, settings.units)} />
     <section className="trail-map glass wide">
       <div className="section-title"><Map/> Route overview</div>
-      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} />
+      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} />
+      <div className="source-note">{trailGeometryStatus} Source: OpenStreetMap contributors (ODbL). GPX copy: <code>/trails/grafton-speck-osm.gpx</code></div>
       <div className="progress"><span style={{ width: `${navigation.progress}%` }} /></div>
     </section>
     <section className="panel glass">
@@ -304,7 +322,7 @@ function Dashboard({ settings, area, route, hike, current, destination, navigati
   </section>;
 }
 
-function Planner({ area, ordered, route, planner, setPlannerPatch, destination, navigation, useManualCoords }) {
+function Planner({ area, ordered, route, planner, setPlannerPatch, destination, navigation, useManualCoords, trailGeometry }) {
   return <section className="page-grid two-col">
     <section className="panel glass">
       <div className="section-title"><Map/> Route planner</div>
@@ -321,7 +339,7 @@ function Planner({ area, ordered, route, planner, setPlannerPatch, destination, 
       {(planner.destinationMode === 'coords' || planner.destinationMode === 'name') && <><label>Name<input value={planner.destinationName} onChange={e => setPlannerPatch({ destinationName: e.target.value })} placeholder="Camp, road, water source…" /></label>{planner.destinationMode === 'coords' && <label>Coordinates<input value={planner.coordText} onChange={e => setPlannerPatch({ coordText: e.target.value })} placeholder="34.6274, -84.1933" /></label>}<button className="secondary" onClick={useManualCoords}>Use coordinates as current position</button></>}
       <div className="chosen-destination"><strong>Chosen:</strong> {destination?.name || 'Invalid coordinate'} · {fmtMiles(navigation.toDestination)}</div>
     </section>
-    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={area.waypoints} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} /></section>
+    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={area.waypoints} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} /></section>
   </section>;
 }
 
@@ -352,8 +370,31 @@ function SettingsPage({ settings, setSettingsPatch, planner, setPlannerPatch, hi
   return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Settings/> Preferences</div><label>Hiker name<input value={settings.hikerName} onChange={e => setSettingsPatch({ hikerName: e.target.value })} /></label><label>Units<select value={settings.units} onChange={e => setSettingsPatch({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Expected pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => setSettingsPatch({ paceMph: Number(e.target.value) })} /></label><label>Auto-end radius miles<input type="number" step="0.01" value={settings.autoEndRadiusMiles} onChange={e => setSettingsPatch({ autoEndRadiusMiles: Number(e.target.value) })} /></label><label>Theme<select value={settings.theme} onChange={e => setSettingsPatch({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label></section><section className="panel glass"><div className="section-title"><Save/> Local data</div><p className="muted">Settings, route, hike state, and queued requests persist in this browser with localStorage.</p><button className="danger" onClick={() => { localStorage.clear(); setHike({ active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] }); }}>Clear local app data</button><textarea value={planner.notes} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Trail notes, gear reminders, water reports…" /></section></section>;
 }
 
-function RouteMap({ route, current, destination, onPick }) {
-  return <div className="map-choice"><svg viewBox="0 0 360 520" role="img" aria-label="Interactive route map"> <path className="terrain" d="M42 486 C98 430,66 384,136 334 C208 278,105 230,195 164 C244 128,218 74,310 34" />{route.map((w, i) => { const t = route.length === 1 ? 0 : i / (route.length - 1); const x = 42 + t * 268 + Math.sin(t * 12) * 28; const y = 486 - t * 452 + Math.cos(t * 9) * 18; const isDest = destination?.id === w.id || destination?.name === w.name; return <g key={w.id} className={`pin ${isDest ? 'dest' : ''}`} onClick={() => onPick?.(w)}><circle cx={x} cy={y} r={isDest ? 11 : 8}/><text x={x+14} y={y+4}>{w.mile} · {w.name}</text></g>; })}</svg><div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div></div>;
+function RouteMap({ route, current, destination, onPick, trailGeometry }) {
+  const trailSegments = (trailGeometry?.features || [])
+    .map(feature => feature.geometry?.coordinates || [])
+    .filter(coords => coords.length > 1);
+  const geometryPoints = trailSegments.flat();
+  const waypointPoints = route.map(w => [w.lon, w.lat]);
+  const allPoints = [...geometryPoints, ...waypointPoints];
+  const minLon = Math.min(...allPoints.map(p => p[0]));
+  const maxLon = Math.max(...allPoints.map(p => p[0]));
+  const minLat = Math.min(...allPoints.map(p => p[1]));
+  const maxLat = Math.max(...allPoints.map(p => p[1]));
+  const project = ([lon, lat]) => {
+    const pad = 34;
+    const x = pad + ((lon - minLon) / Math.max(0.0001, maxLon - minLon)) * (360 - pad * 2);
+    const y = 520 - pad - ((lat - minLat) / Math.max(0.0001, maxLat - minLat)) * (520 - pad * 2);
+    return [x, y];
+  };
+  const linePath = (coords) => coords.map((pt, i) => {
+    const [x, y] = project(pt);
+    return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  return <div className="map-choice"><svg viewBox="0 0 360 520" role="img" aria-label="Interactive route map">
+    {trailSegments.length ? trailSegments.map((coords, idx) => <path key={`osm-${idx}`} className="osm-trail" d={linePath(coords)} />) : <path className="terrain" d="M42 486 C98 430,66 384,136 334 C208 278,105 230,195 164 C244 128,218 74,310 34" />}
+    {route.map((w) => { const [x, y] = project([w.lon, w.lat]); const isDest = destination?.id === w.id || destination?.name === w.name; return <g key={w.id} className={`pin ${isDest ? 'dest' : ''}`} onClick={() => onPick?.(w)}><circle cx={x} cy={y} r={isDest ? 11 : 8}/><text x={x+14} y={y+4}>{w.mile} · {w.name}</text></g>; })}
+  </svg><div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div></div>;
 }
 
 function Metric({ icon: Icon, label, value, sub }) {
