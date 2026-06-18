@@ -39,6 +39,14 @@ select option { background: #17331f; color: #f7f1df; }
 .mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
 .mini-stats span, .chosen-destination { padding: 11px; border-radius: 14px; background: rgba(255,255,255,.07); color: #e9dfbf; }
 .trail-map svg, .map-choice svg { width: 100%; min-height: 430px; background: linear-gradient(180deg, rgba(191,224,169,.1), rgba(106,74,37,.18)); border-radius: 20px; border: 1px solid rgba(255,255,255,.08); }
+.real-map-wrap { display: grid; gap: 10px; }
+.real-map { width: 100%; min-height: 520px; border-radius: 20px; border: 1px solid rgba(255,255,255,.14); overflow: hidden; background: #17331f; }
+.leaflet-container { background: #17331f; color: #172215; font-family: inherit; }
+.leaflet-popup-content { color: #172215; line-height: 1.45; font-weight: 650; }
+.map-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; color: #d4c9a8; font-size: .9rem; }
+.map-toolbar button { border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.08); color: #f7f1df; border-radius: 999px; padding: 8px 12px; font-weight: 850; }
+.checkbox-row { grid-template-columns: auto 1fr; align-items: center; }
+.checkbox-row input { width: auto; }
 .terrain { fill: none; stroke: #e2a241; stroke-width: 9; stroke-linecap: round; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
 .osm-trail { fill: none; stroke: #7ee06f; stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 4px 8px rgba(0,0,0,.45)); }
 .source-note { margin-top: 10px; color: #d4c9a8; font-size: .86rem; line-height: 1.45; }

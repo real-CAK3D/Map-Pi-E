@@ -1,6 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, AlertTriangle, Backpack, Bluetooth, Camera, Compass, Database, Droplets, Flag, GitBranch, Home, Leaf, ListChecks, LocateFixed, Map, MapPin, Mountain, Navigation, Play, RotateCcw, Save, Send, Settings, ShieldAlert, Square, TentTree, ThermometerSun, Upload, Users, Wifi } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import './styles.css';
 
 const AT_MILES = 2197.4;
@@ -240,7 +242,7 @@ function calcSunTimes(date, lat, lon) {
 function App() {
   const [activeTab, setActiveTab] = useStoredState('mapPi.activeTab', 'dashboard');
   const [settings, setSettings] = useStoredState('mapPi.settings', {
-    units: 'miles', paceMph: 2.2, autoEndRadiusMiles: 0.12, theme: 'forest', gpsSource: 'phone', hikerName: 'CAK3D', offlineMode: true,
+    units: 'miles', paceMph: 2.2, autoEndRadiusMiles: 0.12, theme: 'forest', gpsSource: 'phone', hikerName: 'CAK3D', offlineMode: true, mapLayer: 'terrain', fitMode: 'trail', showCurrentWhenFar: false,
   });
   const [planner, setPlanner] = useStoredState('mapPi.planner', {
     area: 'graftonSpeck', direction: 'northbound', startId: 'rt26-grafton', endId: 'speck-pond', destinationMode: 'dropdown', destinationId: 'speck-pond', destinationName: '', coordText: '44.5637, -70.9734', notes: 'Field test: Route 26 / Grafton Notch to Speck Pond.', selectedMapId: 'speck-pond',
@@ -397,7 +399,7 @@ function App() {
 
     {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={trailGeometry} trailGeometryStatus={trailGeometryStatus} sosMarker={sosMarker} sunInfo={sunInfo} />}
     {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={trailGeometry} sosMarker={sosMarker} />}
-    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} />}
+    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} trailGeometry={trailGeometry} />}
     {activeTab === 'waypoints' && <Waypoints settings={settings} route={snappedRoute} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
     {activeTab === 'drops' && <Drops drops={defaultDrops} queuedRequest={queuedRequest} setQueuedRequest={setQueuedRequest} queueSupplyRequest={queueSupplyRequest} requestQueue={hike.requestQueue || []} destination={destination} />}
     {activeTab === 'plant' && <Plant plantPhoto={plantPhoto} handlePlantPhoto={handlePlantPhoto} />}
@@ -416,7 +418,7 @@ function Dashboard({ settings, area, route, hike, current, destination, navigati
     <Metric icon={ThermometerSun} label="Next light change" value={sunInfo.next ? sunInfo.next.label : '—'} sub={sunInfo.next ? `${sunInfo.next.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${formatDuration(sunInfo.next.time - new Date())}` : 'Sun data unavailable'} />
     <section className="trail-map glass wide">
       <div className="section-title"><Map/> Route overview</div>
-      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} />
+      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} />
       <div className="source-note">{trailGeometryStatus} Source: OpenStreetMap contributors (ODbL). GPX copy: <code>/trails/grafton-speck-osm.gpx</code></div>
       <div className="progress"><span style={{ width: `${navigation.progress}%` }} /></div>
     </section>
@@ -446,11 +448,11 @@ function Planner({ area, ordered, route, planner, setPlannerPatch, destination, 
       {(planner.destinationMode === 'coords' || planner.destinationMode === 'name') && <><label>Name<input value={planner.destinationName} onChange={e => setPlannerPatch({ destinationName: e.target.value })} placeholder="Camp, road, water source…" /></label>{planner.destinationMode === 'coords' && <label>Coordinates<input value={planner.coordText} onChange={e => setPlannerPatch({ coordText: e.target.value })} placeholder="34.6274, -84.1933" /></label>}<button className="secondary" onClick={useManualCoords}>Use coordinates as current position</button></>}
       <div className="chosen-destination"><strong>Chosen:</strong> {destination?.name || 'Invalid coordinate'} · {fmtMiles(navigation.toDestination)}</div>
     </section>
-    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} sosMarker={sosMarker} /></section>
+    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} current={null} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} sosMarker={sosMarker} settings={{ mapLayer: 'terrain', fitMode: 'trail' }} /></section>
   </section>;
 }
 
-function Navigate({ settings, route, hike, current, destination, navigation, geoStatus, getLocation, stopLiveTracking, geoWatchId, startHike, endHike, resetHike, setManualPosition, lastKnownLocation, sunInfo, raiseSOS, clearSOS, sosMarker, emergencyStatus }) {
+function Navigate({ settings, route, hike, current, destination, navigation, geoStatus, getLocation, stopLiveTracking, geoWatchId, startHike, endHike, resetHike, setManualPosition, lastKnownLocation, sunInfo, raiseSOS, clearSOS, sosMarker, emergencyStatus, trailGeometry }) {
   const emergencyText = buildEmergencyText({ settings, current, snappedCurrent: navigation.snappedCurrent, destination, sosMarker });
   return <section className="page-grid">
     <Metric icon={LocateFixed} label="Current position" value={current.label || 'Manual/GPS'} sub={`${Number(current.lat).toFixed(4)}, ${Number(current.lon).toFixed(4)}`} />
@@ -460,7 +462,7 @@ function Navigate({ settings, route, hike, current, destination, navigation, geo
     <Metric icon={ThermometerSun} label="Sunrise / sunset" value={sunInfo.sunrise ? sunInfo.sunrise.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'} sub={sunInfo.sunset ? `Sunset ${sunInfo.sunset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · next ${sunInfo.next?.label || '—'} in ${sunInfo.next ? formatDuration(sunInfo.next.time - new Date()) : '—'}` : 'Sun data unavailable'} />
     <section className="panel glass wide"><div className="section-title"><Activity/> Hike controls</div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}><LocateFixed size={16}/> {geoWatchId == null ? 'Start live GPS' : 'Restart live GPS'}</button><button className="secondary" onClick={stopLiveTracking} disabled={geoWatchId == null}>Stop live GPS</button><button className="primary" onClick={startHike} disabled={hike.active}><Play size={16}/> Start hike</button><button className="danger" onClick={endHike} disabled={!hike.active}><Square size={16}/> End hike</button><button className="secondary" onClick={resetHike}><RotateCcw size={16}/> Reset</button></div></section>
     <section className="panel glass"><div className="section-title"><ListChecks/> Route queue</div>{route.map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · route snap {w.snap ? `${w.snap.distance.toFixed(2)} mi` : '—'}</span></button>)}</section>
-    <section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
+    <section className="trail-map glass wide"><div className="section-title"><Map/> Live route map</div><RouteMap route={route} current={current} destination={destination} onPick={(wp) => setManualPosition({ lat: wp.displayLat || wp.lat, lon: wp.displayLon || wp.lon, label: wp.name })} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} /></section><section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
   </section>;
 }
 
@@ -477,36 +479,106 @@ function Plant({ plantPhoto, handlePlantPhoto }) {
 }
 
 function SettingsPage({ settings, setSettingsPatch, planner, setPlannerPatch, hike, setHike }) {
-  return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Settings/> Preferences</div><label>Hiker name<input value={settings.hikerName} onChange={e => setSettingsPatch({ hikerName: e.target.value })} /></label><label>Units<select value={settings.units} onChange={e => setSettingsPatch({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Expected pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => setSettingsPatch({ paceMph: Number(e.target.value) })} /></label><label>Auto-end radius miles<input type="number" step="0.01" value={settings.autoEndRadiusMiles} onChange={e => setSettingsPatch({ autoEndRadiusMiles: Number(e.target.value) })} /></label><label>Theme<select value={settings.theme} onChange={e => setSettingsPatch({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label></section><section className="panel glass"><div className="section-title"><Save/> Local data</div><p className="muted">Settings, route, hike state, and queued requests persist in this browser with localStorage.</p><button className="danger" onClick={() => { localStorage.clear(); setHike({ active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] }); }}>Clear local app data</button><textarea value={planner.notes} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Trail notes, gear reminders, water reports…" /></section></section>;
+  return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Settings/> Preferences</div><label>Hiker name<input value={settings.hikerName} onChange={e => setSettingsPatch({ hikerName: e.target.value })} /></label><label>Units<select value={settings.units} onChange={e => setSettingsPatch({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Expected pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => setSettingsPatch({ paceMph: Number(e.target.value) })} /></label><label>Auto-end radius miles<input type="number" step="0.01" value={settings.autoEndRadiusMiles} onChange={e => setSettingsPatch({ autoEndRadiusMiles: Number(e.target.value) })} /></label><label>Theme<select value={settings.theme} onChange={e => setSettingsPatch({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label><label>Map layer<select value={settings.mapLayer || 'terrain'} onChange={e => setSettingsPatch({ mapLayer: e.target.value })}><option value="terrain">Terrain / topo</option><option value="osm">Street map</option><option value="satellite">Satellite-ish Esri</option></select></label><label>Initial map fit<select value={settings.fitMode || 'trail'} onChange={e => setSettingsPatch({ fitMode: e.target.value })}><option value="trail">Trail only</option><option value="include-current">Include current location</option></select></label><label className="checkbox-row"><input type="checkbox" checked={!!settings.showCurrentWhenFar} onChange={e => setSettingsPatch({ showCurrentWhenFar: e.target.checked })} /> Show current marker even when far from route</label></section><section className="panel glass"><div className="section-title"><Save/> Local data</div><p className="muted">Settings, route, hike state, and queued requests persist in this browser with localStorage.</p><button className="danger" onClick={() => { localStorage.clear(); setHike({ active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] }); }}>Clear local app data</button><textarea value={planner.notes} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Trail notes, gear reminders, water reports…" /></section></section>;
 }
 
-function RouteMap({ route, current, destination, onPick, trailGeometry, sosMarker, navigation }) {
-  const trailSegments = (trailGeometry?.features || [])
-    .map(feature => feature.geometry?.coordinates || [])
-    .filter(coords => coords.length > 1);
-  const geometryPoints = trailSegments.flat();
-  const waypointPoints = route.map(w => [w.displayLon || w.lon, w.displayLat || w.lat]);
-  const allPoints = [...geometryPoints, ...waypointPoints, ...(current ? [[current.lon, current.lat]] : []), ...(sosMarker ? [[sosMarker.lon, sosMarker.lat]] : [])];
-  const minLon = Math.min(...allPoints.map(p => p[0]));
-  const maxLon = Math.max(...allPoints.map(p => p[0]));
-  const minLat = Math.min(...allPoints.map(p => p[1]));
-  const maxLat = Math.max(...allPoints.map(p => p[1]));
-  const project = ([lon, lat]) => {
-    const pad = 34;
-    const x = pad + ((lon - minLon) / Math.max(0.0001, maxLon - minLon)) * (360 - pad * 2);
-    const y = 520 - pad - ((lat - minLat) / Math.max(0.0001, maxLat - minLat)) * (520 - pad * 2);
-    return [x, y];
+function RouteMap({ route, current, destination, onPick, trailGeometry, sosMarker, navigation, settings = {} }) {
+  const mapRef = useRef(null);
+  const mapElRef = useRef(null);
+  const layerRef = useRef(null);
+  const tileRef = useRef(null);
+  const trailSegments = getTrailSegments(trailGeometry);
+  const trailPoints = getTrailPoints(trailGeometry);
+  const isCurrentNearTrail = !!navigation?.snappedCurrent && navigation.snappedCurrent.distance < 2;
+  const shouldShowCurrent = !!current && (settings.showCurrentWhenFar || isCurrentNearTrail || settings.fitMode === 'include-current');
+
+  useEffect(() => {
+    if (!mapElRef.current || mapRef.current) return;
+    mapRef.current = L.map(mapElRef.current, { zoomControl: true, scrollWheelZoom: true });
+    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+    return () => { mapRef.current?.remove(); mapRef.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const layers = {
+      terrain: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: 'Map data © OpenStreetMap contributors, SRTM | OpenTopoMap CC-BY-SA' },
+      osm: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '© OpenStreetMap contributors' },
+      satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles © Esri — source data providers' },
+    };
+    const selected = layers[settings.mapLayer || 'terrain'] || layers.terrain;
+    if (tileRef.current) tileRef.current.remove();
+    tileRef.current = L.tileLayer(selected.url, { maxZoom: selected.url.includes('opentopomap') ? 17 : 19, attribution: selected.attribution });
+    tileRef.current.addTo(mapRef.current);
+  }, [settings.mapLayer]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (layerRef.current) layerRef.current.remove();
+    const group = L.layerGroup();
+    const bounds = [];
+
+    trailSegments.forEach((coords) => {
+      const latLngs = coords.map(([lon, lat]) => [lat, lon]);
+      L.polyline(latLngs, { color: '#76ff6a', weight: 5, opacity: 0.95 }).bindPopup('Appalachian Trail geometry<br/>Source: OpenStreetMap / ODbL').addTo(group);
+      bounds.push(...latLngs);
+    });
+
+    route.forEach((w) => {
+      const lat = w.displayLat || w.lat;
+      const lon = w.displayLon || w.lon;
+      const marker = L.circleMarker([lat, lon], {
+        radius: destination?.id === w.id || destination?.name === w.name ? 10 : 7,
+        color: '#112317', weight: 2,
+        fillColor: destination?.id === w.id || destination?.name === w.name ? '#ffdb77' : '#bfe0a9', fillOpacity: 0.96,
+      });
+      const dist = current ? fmtMiles(haversineMiles(current, { lat, lon }), settings.units) : '—';
+      marker.bindPopup(`<strong>${w.name}</strong><br/>${w.type} · mile ${w.mile}<br/>From you: ${dist}<br/>Trail snap offset: ${w.snap ? fmtMiles(w.snap.distance, settings.units) : 'n/a'}<br/>${w.detail || ''}`);
+      marker.on('click', () => onPick?.(w));
+      marker.addTo(group);
+      bounds.push([lat, lon]);
+    });
+
+    if (shouldShowCurrent) {
+      const marker = L.circleMarker([current.lat, current.lon], { radius: 9, color: '#e8f5ff', weight: 3, fillColor: '#399cff', fillOpacity: 0.95 });
+      marker.bindPopup(`<strong>You / last known</strong><br/>${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}<br/>Accuracy: ${current.accuracy ? Math.round(current.accuracy) + 'm' : 'manual/unknown'}<br/>Off route: ${navigation?.snappedCurrent ? fmtMiles(navigation.snappedCurrent.distance, settings.units) : '—'}`);
+      marker.addTo(group);
+      if (settings.fitMode === 'include-current') bounds.push([current.lat, current.lon]);
+    }
+
+    if (sosMarker) {
+      const sos = L.circleMarker([sosMarker.lat, sosMarker.lon], { radius: 13, color: '#ffe3dd', weight: 3, fillColor: '#ff4d3d', fillOpacity: 0.95 });
+      sos.bindPopup(`<strong>SOS / help marker</strong><br/>${sosMarker.createdAt || ''}<br/>${sosMarker.lat.toFixed(5)}, ${sosMarker.lon.toFixed(5)}`);
+      sos.addTo(group);
+      bounds.push([sosMarker.lat, sosMarker.lon]);
+    }
+
+    group.addTo(mapRef.current);
+    layerRef.current = group;
+    if (bounds.length) mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 });
+    else mapRef.current.setView([44.57, -70.96], 13);
+    setTimeout(() => mapRef.current?.invalidateSize(), 100);
+  }, [trailGeometry, route, current, destination, sosMarker, shouldShowCurrent, settings.fitMode, settings.showCurrentWhenFar, settings.units]);
+
+  const fitTrail = () => {
+    if (!mapRef.current) return;
+    const pts = trailPoints.map(([lon, lat]) => [lat, lon]);
+    if (pts.length) mapRef.current.fitBounds(pts, { padding: [24, 24], maxZoom: 15 });
   };
-  const linePath = (coords) => coords.map((pt, i) => {
-    const [x, y] = project(pt);
-    return `${i === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`;
-  }).join(' ');
-  return <div className="map-choice"><svg viewBox="0 0 360 520" role="img" aria-label="Interactive route map">
-    {trailSegments.length ? trailSegments.map((coords, idx) => <path key={`osm-${idx}`} className="osm-trail" d={linePath(coords)} />) : <path className="terrain" d="M42 486 C98 430,66 384,136 334 C208 278,105 230,195 164 C244 128,218 74,310 34" />}
-    {route.map((w) => { const [x, y] = project([w.displayLon || w.lon, w.displayLat || w.lat]); const isDest = destination?.id === w.id || destination?.name === w.name; return <g key={w.id} className={`pin ${isDest ? 'dest' : ''}`} onClick={() => onPick?.(w)}><circle cx={x} cy={y} r={isDest ? 11 : 8}/><title>{`${w.name} · ${w.type} · from you ${fmtMiles(haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }))} · snap offset ${w.snap ? fmtMiles(w.snap.distance) : 'n/a'}`}</title><text x={x+14} y={y+4}>{w.mile} · {w.name}</text></g>; })}
-    {current && (() => { const [cx, cy] = project([current.lon, current.lat]); return <g className="pin current-pin"><circle cx={cx} cy={cy} r="9"/><title>{`Current / last known · ${current.lat.toFixed(5)}, ${current.lon.toFixed(5)} · off route ${navigation?.snappedCurrent ? fmtMiles(navigation.snappedCurrent.distance) : '—'}`}</title><text x={cx+14} y={cy+4}>You</text></g>; })()}
-    {sosMarker && (() => { const [sx, sy] = project([sosMarker.lon, sosMarker.lat]); return <g className="pin sos-pin"><circle cx={sx} cy={sy} r="13"/><title>{`SOS marker · ${sosMarker.createdAt}`}</title><text x={sx+15} y={sy+4}>SOS</text></g>; })()}
-  </svg><div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div></div>;
+  const fitMe = () => current && mapRef.current?.setView([current.lat, current.lon], 14);
+  const fitDestination = () => destination && mapRef.current?.setView([destination.displayLat || destination.lat, destination.displayLon || destination.lon], 15);
+  const offRouteText = current && navigation?.snappedCurrent ? `${fmtMiles(navigation.snappedCurrent.distance, settings.units)} from mapped route` : 'Current location hidden unless near route or enabled in settings.';
+
+  return <div className="map-choice real-map-wrap">
+    <div className="real-map" ref={mapElRef} />
+    <div className="map-toolbar">
+      <button onClick={fitTrail}>Fit trail</button>
+      <button onClick={fitDestination}>Destination</button>
+      <button onClick={fitMe} disabled={!current}>My location</button>
+      <span>{shouldShowCurrent ? `Current: ${offRouteText}` : `Current marker hidden: ${offRouteText}`}</span>
+    </div>
+    <div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div>
+  </div>;
 }
 
 function Metric({ icon: Icon, label, value, sub }) {
