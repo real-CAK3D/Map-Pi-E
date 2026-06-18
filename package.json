@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 4317",
     "build": "vite build",
-    "preview": "vite preview --host 0.0.0.0 --port 4317"
+    "preview": "vite preview --host 0.0.0.0 --port 4317",
+    "smoke": "node scripts/smoke-map-pi.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

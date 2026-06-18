@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, AlertTriangle, Backpack, Bluetooth, Camera, Compass, Database, Droplets, Flag, GitBranch, Home, Leaf, ListChecks, LocateFixed, Map, MapPin, Mountain, Navigation, Play, RotateCcw, Save, Send, Settings, ShieldAlert, Square, TentTree, ThermometerSun, Upload, Users, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, Backpack, Bluetooth, Camera, Compass, Database, Download, Droplets, Flag, GitBranch, Home, Leaf, ListChecks, LocateFixed, Map, MapPin, Mountain, Navigation, Play, RotateCcw, Save, Send, Settings, ShieldAlert, Smartphone, Square, TentTree, ThermometerSun, Upload, Users, Wifi } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './styles.css';
@@ -203,6 +203,43 @@ function buildEmergencyText({ settings, current, snappedCurrent, destination, so
   const maps = loc ? `https://maps.google.com/?q=${loc.lat.toFixed(6)},${loc.lon.toFixed(6)}` : 'No location available';
   return `SOS / help marker from ${settings.hikerName || 'Map-Pi user'}\nLocation: ${loc ? `${loc.lat.toFixed(6)}, ${loc.lon.toFixed(6)}` : 'unknown'}\nMap: ${maps}\nDestination: ${destination?.name || 'unknown'}\nTrail snap: ${snappedCurrent ? `${snappedCurrent.distance.toFixed(2)} mi off route, ${snappedCurrent.milesFromStart.toFixed(2)} mi from route start` : 'unavailable'}\nTime: ${new Date().toLocaleString()}\nNote: Map-Pi local SOS marker; live broadcast needs Supabase/backend or cell/satellite relay.`;
 }
+
+function registerServiceWorker(setPwaStatus) {
+  if (!('serviceWorker' in navigator)) return setPwaStatus('Service worker not supported in this browser.');
+  navigator.serviceWorker.register('/sw.js')
+    .then((registration) => {
+      setPwaStatus(`Offline shell ready · scope ${registration.scope}`);
+      registration.update?.();
+    })
+    .catch((error) => setPwaStatus(`Offline shell registration failed: ${error.message}`));
+}
+function geoJsonToGpx(featureCollection, name = 'Map-Pi exported route') {
+  const segments = (featureCollection?.features || []).map((feature) => feature.geometry?.coordinates || []).filter(coords => coords.length > 1);
+  const trksegs = segments.map(coords => `    <trkseg>\n${coords.map(([lon, lat]) => `      <trkpt lat="${Number(lat).toFixed(7)}" lon="${Number(lon).toFixed(7)}" />`).join('\n')}\n    </trkseg>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Map-Pi Trail Buddy" xmlns="http://www.topografix.com/GPX/1/1">\n  <metadata><name>${name}</name></metadata>\n  <trk><name>${name}</name>\n${trksegs}\n  </trk>\n</gpx>\n`;
+}
+function gpxTextToGeoJson(text, name = 'Imported GPX route') {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const parserError = doc.querySelector('parsererror');
+  if (parserError) throw new Error('Invalid GPX XML');
+  const segments = [...doc.querySelectorAll('trkseg')].map(seg => [...seg.querySelectorAll('trkpt')].map(pt => [Number(pt.getAttribute('lon')), Number(pt.getAttribute('lat'))]).filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat))).filter(coords => coords.length > 1);
+  const fallback = [...doc.querySelectorAll('trkpt')].map(pt => [Number(pt.getAttribute('lon')), Number(pt.getAttribute('lat'))]).filter(([lon, lat]) => Number.isFinite(lon) && Number.isFinite(lat));
+  const finalSegments = segments.length ? segments : (fallback.length > 1 ? [fallback] : []);
+  if (!finalSegments.length) throw new Error('No GPX track points found');
+  return { type: 'FeatureCollection', name, properties: { source: 'Imported GPX', importedAt: new Date().toISOString() }, features: finalSegments.map((coords, i) => ({ type: 'Feature', properties: { name: `${name} segment ${i + 1}` }, geometry: { type: 'LineString', coordinates: coords } })) };
+}
+function downloadText(filename, content, type = 'application/gpx+xml') {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 function calcSunTimes(date, lat, lon) {
   const rad = Math.PI / 180;
   const zenith = 90.833;
@@ -259,6 +296,10 @@ function App() {
   const [sosMarker, setSosMarker] = useStoredState('mapPi.sosMarker', null);
   const [geoWatchId, setGeoWatchId] = useState(null);
   const [emergencyStatus, setEmergencyStatus] = useState('SOS marker is local until Supabase/backend sync is wired.');
+  const [pwaStatus, setPwaStatus] = useState('Offline shell not registered yet.');
+  const [importedTrailGeometry, setImportedTrailGeometry] = useStoredState('mapPi.importedTrailGeometry', null);
+
+  useEffect(() => { registerServiceWorker(setPwaStatus); }, []);
 
   useEffect(() => {
     fetch('/trails/grafton-speck-osm.geojson')
@@ -285,6 +326,7 @@ function App() {
     localStorage.setItem('mapPi.routePackVersion', routePackVersion);
   }, [setPlanner, setManualPosition]);
 
+  const activeTrailGeometry = importedTrailGeometry || trailGeometry;
   const area = AREAS[planner.area] || AREAS.graftonSpeck;
   const ordered = planner.direction === 'southbound' ? [...area.waypoints].reverse() : area.waypoints;
   const startIdx = Math.max(0, ordered.findIndex(w => w.id === planner.startId));
@@ -294,7 +336,7 @@ function App() {
   const high = Math.max(startIdx, endIdx);
   const route = ordered.slice(low, high + 1);
   const current = position || lastKnownLocation || manualPosition;
-  const trailMeta = useMemo(() => getTrailMeta(trailGeometry), [trailGeometry]);
+  const trailMeta = useMemo(() => getTrailMeta(activeTrailGeometry), [activeTrailGeometry]);
   const snappedRoute = useMemo(() => planner.area === 'graftonSpeck' ? route.map(w => snapWaypointToTrail(w, trailMeta)) : route, [route, trailMeta, planner.area]);
   const snappedCurrent = useMemo(() => nearestTrailPoint(current, trailMeta), [current, trailMeta]);
   const sunInfo = useMemo(() => calcSunTimes(new Date(), current.lat, current.lon), [current.lat, current.lon]);
@@ -384,12 +426,22 @@ function App() {
     setHike(h => ({ ...h, requestQueue: [...(h.requestQueue || []), { id: Date.now(), text: queuedRequest.trim(), destination: destination?.name || 'Current route', createdAt: new Date().toLocaleString(), status: 'Queued offline' }] }));
     setQueuedRequest('');
   };
+  const exportActiveGpx = () => downloadText('map-pi-active-route.gpx', geoJsonToGpx(activeTrailGeometry, area.label));
+  const exportEmergencyJson = () => downloadText('map-pi-emergency-state.json', JSON.stringify({ planner, hike, current, lastKnownLocation, sosMarker, destination, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
+  const importGpxFile = async (file) => {
+    if (!file) return;
+    const text = await file.text();
+    const geo = gpxTextToGeoJson(text, file.name.replace(/\.gpx$/i, ''));
+    setImportedTrailGeometry(geo);
+    setTrailGeometryStatus(`Imported GPX route: ${geo.features.length} segment(s), ${getTrailPoints(geo).length} points.`);
+  };
+  const clearImportedRoute = () => { setImportedTrailGeometry(null); setTrailGeometryStatus('Using bundled OSM Route 26 / Speck Pond geometry.'); };
 
   const tabs = [
-    ['dashboard', 'Dashboard', Activity], ['planner', 'Planner', Map], ['navigate', 'Navigate', Navigation], ['waypoints', 'Waypoints', ListChecks], ['drops', 'Drops', Users], ['plant', 'Plant ID', Leaf], ['settings', 'Settings', Settings],
+    ['dashboard', 'Dashboard', Activity], ['planner', 'Planner', Map], ['navigate', 'Navigate', Navigation], ['waypoints', 'Waypoints', ListChecks], ['drops', 'Drops', Users], ['plant', 'Plant ID', Leaf], ['field', 'Field Kit', Smartphone], ['settings', 'Settings', Settings],
   ];
 
-  return <main className={`app-shell theme-${settings.theme}`}>
+  return <main className={`app-shell theme-${settings.theme} ${settings.fieldMode ? 'field-mode' : ''}`}>
     <header className="app-header glass">
       <div><p className="eyebrow"><MapPin size={16}/> Map-Pi Appalachian Trail System</p><h1>Trail Buddy</h1><p>{area.label} · {planner.direction} · {hike.active ? 'Hike active' : hike.completed ? 'Destination reached' : 'Planning mode'}</p></div>
       <div className="status-pill"><Wifi size={16}/> Tailscale ready</div>
@@ -397,15 +449,16 @@ function App() {
 
     <nav className="tab-bar glass">{tabs.map(([id, label, Icon]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}><Icon size={17}/><span>{label}</span></button>)}</nav>
 
-    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={trailGeometry} trailGeometryStatus={trailGeometryStatus} sosMarker={sosMarker} sunInfo={sunInfo} />}
-    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={trailGeometry} sosMarker={sosMarker} />}
-    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} trailGeometry={trailGeometry} />}
+    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={activeTrailGeometry} trailGeometryStatus={trailGeometryStatus} sosMarker={sosMarker} sunInfo={sunInfo} />}
+    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} />}
+    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} trailGeometry={activeTrailGeometry} />}
     {activeTab === 'waypoints' && <Waypoints settings={settings} route={snappedRoute} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
     {activeTab === 'drops' && <Drops drops={defaultDrops} queuedRequest={queuedRequest} setQueuedRequest={setQueuedRequest} queueSupplyRequest={queueSupplyRequest} requestQueue={hike.requestQueue || []} destination={destination} />}
     {activeTab === 'plant' && <Plant plantPhoto={plantPhoto} handlePlantPhoto={handlePlantPhoto} />}
+    {activeTab === 'field' && <FieldKit pwaStatus={pwaStatus} settings={settings} setSettingsPatch={setSettingsPatch} trailGeometry={activeTrailGeometry} importedTrailGeometry={importedTrailGeometry} importGpxFile={importGpxFile} clearImportedRoute={clearImportedRoute} exportActiveGpx={exportActiveGpx} exportEmergencyJson={exportEmergencyJson} current={current} destination={destination} />}
     {activeTab === 'settings' && <SettingsPage settings={settings} setSettingsPatch={setSettingsPatch} planner={planner} setPlannerPatch={setPlannerPatch} hike={hike} setHike={setHike} />}
 
-    <footer>Phone/PWA now, Pi display later. GPS module plugs into the same current-position model when the hardware lands.</footer>
+    <footer>Installable PWA shell, GPX tools, terrain map, and local safety state. Shared live/SOS sync needs backend credentials.</footer>
   </main>;
 }
 
@@ -418,7 +471,7 @@ function Dashboard({ settings, area, route, hike, current, destination, navigati
     <Metric icon={ThermometerSun} label="Next light change" value={sunInfo.next ? sunInfo.next.label : '—'} sub={sunInfo.next ? `${sunInfo.next.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${formatDuration(sunInfo.next.time - new Date())}` : 'Sun data unavailable'} />
     <section className="trail-map glass wide">
       <div className="section-title"><Map/> Route overview</div>
-      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} />
+      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} />
       <div className="source-note">{trailGeometryStatus} Source: OpenStreetMap contributors (ODbL). GPX copy: <code>/trails/grafton-speck-osm.gpx</code></div>
       <div className="progress"><span style={{ width: `${navigation.progress}%` }} /></div>
     </section>
@@ -448,7 +501,7 @@ function Planner({ area, ordered, route, planner, setPlannerPatch, destination, 
       {(planner.destinationMode === 'coords' || planner.destinationMode === 'name') && <><label>Name<input value={planner.destinationName} onChange={e => setPlannerPatch({ destinationName: e.target.value })} placeholder="Camp, road, water source…" /></label>{planner.destinationMode === 'coords' && <label>Coordinates<input value={planner.coordText} onChange={e => setPlannerPatch({ coordText: e.target.value })} placeholder="34.6274, -84.1933" /></label>}<button className="secondary" onClick={useManualCoords}>Use coordinates as current position</button></>}
       <div className="chosen-destination"><strong>Chosen:</strong> {destination?.name || 'Invalid coordinate'} · {fmtMiles(navigation.toDestination)}</div>
     </section>
-    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} current={null} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} sosMarker={sosMarker} settings={{ mapLayer: 'terrain', fitMode: 'trail' }} /></section>
+    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} current={null} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} settings={{ mapLayer: 'terrain', fitMode: 'trail' }} /></section>
   </section>;
 }
 
@@ -462,7 +515,7 @@ function Navigate({ settings, route, hike, current, destination, navigation, geo
     <Metric icon={ThermometerSun} label="Sunrise / sunset" value={sunInfo.sunrise ? sunInfo.sunrise.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'} sub={sunInfo.sunset ? `Sunset ${sunInfo.sunset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · next ${sunInfo.next?.label || '—'} in ${sunInfo.next ? formatDuration(sunInfo.next.time - new Date()) : '—'}` : 'Sun data unavailable'} />
     <section className="panel glass wide"><div className="section-title"><Activity/> Hike controls</div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}><LocateFixed size={16}/> {geoWatchId == null ? 'Start live GPS' : 'Restart live GPS'}</button><button className="secondary" onClick={stopLiveTracking} disabled={geoWatchId == null}>Stop live GPS</button><button className="primary" onClick={startHike} disabled={hike.active}><Play size={16}/> Start hike</button><button className="danger" onClick={endHike} disabled={!hike.active}><Square size={16}/> End hike</button><button className="secondary" onClick={resetHike}><RotateCcw size={16}/> Reset</button></div></section>
     <section className="panel glass"><div className="section-title"><ListChecks/> Route queue</div>{route.map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · route snap {w.snap ? `${w.snap.distance.toFixed(2)} mi` : '—'}</span></button>)}</section>
-    <section className="trail-map glass wide"><div className="section-title"><Map/> Live route map</div><RouteMap route={route} current={current} destination={destination} onPick={(wp) => setManualPosition({ lat: wp.displayLat || wp.lat, lon: wp.displayLon || wp.lon, label: wp.name })} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} /></section><section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
+    <section className="trail-map glass wide"><div className="section-title"><Map/> Live route map</div><RouteMap route={route} current={current} destination={destination} onPick={(wp) => setManualPosition({ lat: wp.displayLat || wp.lat, lon: wp.displayLon || wp.lon, label: wp.name })} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} /></section><section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
   </section>;
 }
 
@@ -476,6 +529,23 @@ function Drops({ drops, queuedRequest, setQueuedRequest, queueSupplyRequest, req
 
 function Plant({ plantPhoto, handlePlantPhoto }) {
   return <section className="page-grid two-col"><section className="panel glass plant-lab"><div className="section-title"><Camera/> Plant photo triage</div><p className="muted">Upload from the phone camera over HTTPS/Tailscale or hotspot. Bluetooth file transfer can be a fallback later.</p><label className="upload-box"><Upload/><span>{plantPhoto ? `${plantPhoto.name} · ${plantPhoto.size}` : 'Choose a plant photo'}</span><input type="file" accept="image/*" capture="environment" onChange={handlePlantPhoto} /></label><div className="safety-callout"><AlertTriangle/> Never eat from AI output alone. Map-Pi will return confidence, lookalikes, poisonous warnings, and “do not consume” by default when uncertain.</div></section><section className="panel glass"><div className="section-title"><Database/> Free data strategy</div><ul className="info-list">{plantSources.map(source => <li key={source}>{source}</li>)}</ul></section></section>;
+}
+
+
+function FieldKit({ pwaStatus, settings, setSettingsPatch, trailGeometry, importedTrailGeometry, importGpxFile, clearImportedRoute, exportActiveGpx, exportEmergencyJson, current, destination }) {
+  const pointCount = getTrailPoints(trailGeometry).length;
+  const backendItems = [
+    ['hike_sessions', 'active hike state, started/ended timestamps, selected route'],
+    ['last_known_locations', 'latest GPS fix by user/session, accuracy, battery optional'],
+    ['sos_markers', 'public/help marker with status and resolution notes'],
+    ['route_notes', 'hazards, water, camp notes, visibility options'],
+  ];
+  return <section className="page-grid two-col">
+    <section className="panel glass"><div className="section-title"><Smartphone/> Offline / install</div><p className="muted">{pwaStatus}</p><p className="muted">Use your browser menu → Add to Home Screen. The app shell and bundled Route 26/Speck Pond files cache for rough offline use; live map tiles still depend on tile availability/cache.</p><div className="mini-stats"><span>Field mode: {settings.fieldMode ? 'on' : 'off'}</span><span>Map layer: {settings.mapLayer}</span><span>Trail points: {pointCount}</span></div><label className="checkbox-row"><input type="checkbox" checked={!!settings.fieldMode} onChange={e => setSettingsPatch({ fieldMode: e.target.checked })} /> Field mode: larger controls / low clutter</label></section>
+    <section className="panel glass"><div className="section-title"><GitBranch/> GPX route tools</div><p className="muted">Import a GPX to temporarily replace the bundled trail geometry. Export keeps the active geometry portable for Garmin/CalTopo/backup use.</p><label className="upload-box compact"><Upload/><span>Import GPX route</span><input type="file" accept=".gpx,application/gpx+xml,text/xml" onChange={e => importGpxFile(e.target.files?.[0])} /></label><div className="button-row"><button className="primary" onClick={exportActiveGpx}><Download size={16}/> Export active GPX</button><button className="secondary" onClick={clearImportedRoute} disabled={!importedTrailGeometry}>Use bundled route</button></div><p className="muted">Active source: {importedTrailGeometry ? importedTrailGeometry.name || 'Imported GPX' : 'Bundled OSM Route 26/Speck Pond'}</p></section>
+    <section className="panel glass"><div className="section-title"><ShieldAlert/> Emergency packet</div><p className="muted">Download a no-network JSON snapshot of current state for handoff/debugging.</p><div className="button-row"><button className="danger" onClick={exportEmergencyJson}><Download size={16}/> Export emergency/state JSON</button></div><p className="muted">Current: {current ? `${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}` : 'unknown'} · Destination: {destination?.name || 'unknown'}</p></section>
+    <section className="panel glass"><div className="section-title"><Database/> Supabase-ready schema</div><p className="muted">Not wired until you add credentials. These are the tables/functions needed for public/live behavior.</p>{backendItems.map(([name, desc]) => <article className="drop-card" key={name}><strong>{name}</strong><span>{desc}</span></article>)}<p className="muted">Use RLS: public read only for unresolved SOS markers; owner/session write for location updates; service role only in Edge Functions.</p></section>
+  </section>;
 }
 
 function SettingsPage({ settings, setSettingsPatch, planner, setPlannerPatch, hike, setHike }) {

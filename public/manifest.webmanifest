@@ -1,10 +1,15 @@
 {
   "name": "Map-Pi Trail Buddy",
   "short_name": "Map-Pi",
-  "description": "CAK3D Appalachian Trail buddy for Raspberry Pi + phone screens.",
+  "description": "CAK3D Appalachian Trail buddy with terrain maps, GPX tools, local SOS, and offline field shell.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f4eddc",
+  "orientation": "portrait-primary",
+  "background_color": "#102016",
   "theme_color": "#1f4d2b",
-  "icons": []
+  "categories": ["navigation", "travel", "utilities"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
 }
