@@ -161,6 +161,82 @@ function routeDistance(waypoints) {
   return waypoints.slice(1).reduce((sum, wp, i) => sum + (haversineMiles(waypoints[i], wp) || 0), 0);
 }
 
+function formatDuration(ms) {
+  if (ms == null || Number.isNaN(ms)) return '—';
+  const total = Math.max(0, Math.round(ms / 60000));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+function getTrailSegments(trailGeometry) {
+  return (trailGeometry?.features || []).map(f => f.geometry?.coordinates || []).filter(c => c.length > 1);
+}
+function getTrailPoints(trailGeometry) {
+  return getTrailSegments(trailGeometry).flat();
+}
+function getTrailMeta(trailGeometry) {
+  const points = getTrailPoints(trailGeometry);
+  const cumulative = [0];
+  for (let i = 1; i < points.length; i += 1) {
+    cumulative[i] = cumulative[i - 1] + (haversineMiles({ lon: points[i - 1][0], lat: points[i - 1][1] }, { lon: points[i][0], lat: points[i][1] }) || 0);
+  }
+  return { points, cumulative, totalMiles: cumulative.at(-1) || 0 };
+}
+function nearestTrailPoint(point, trailMeta) {
+  if (!point || !trailMeta?.points?.length) return null;
+  let best = { distance: Infinity, index: -1, coord: null, milesFromStart: 0 };
+  trailMeta.points.forEach((coord, index) => {
+    const distance = haversineMiles(point, { lon: coord[0], lat: coord[1] });
+    if (distance != null && distance < best.distance) best = { distance, index, coord, milesFromStart: trailMeta.cumulative[index] || 0 };
+  });
+  return best.index >= 0 ? best : null;
+}
+function snapWaypointToTrail(wp, trailMeta) {
+  const snap = nearestTrailPoint(wp, trailMeta);
+  if (!snap) return { ...wp, snap: null, displayLat: wp.lat, displayLon: wp.lon };
+  return { ...wp, snap, displayLat: snap.coord[1], displayLon: snap.coord[0] };
+}
+function buildEmergencyText({ settings, current, snappedCurrent, destination, sosMarker }) {
+  const loc = sosMarker || current;
+  const maps = loc ? `https://maps.google.com/?q=${loc.lat.toFixed(6)},${loc.lon.toFixed(6)}` : 'No location available';
+  return `SOS / help marker from ${settings.hikerName || 'Map-Pi user'}\nLocation: ${loc ? `${loc.lat.toFixed(6)}, ${loc.lon.toFixed(6)}` : 'unknown'}\nMap: ${maps}\nDestination: ${destination?.name || 'unknown'}\nTrail snap: ${snappedCurrent ? `${snappedCurrent.distance.toFixed(2)} mi off route, ${snappedCurrent.milesFromStart.toFixed(2)} mi from route start` : 'unavailable'}\nTime: ${new Date().toLocaleString()}\nNote: Map-Pi local SOS marker; live broadcast needs Supabase/backend or cell/satellite relay.`;
+}
+function calcSunTimes(date, lat, lon) {
+  const rad = Math.PI / 180;
+  const zenith = 90.833;
+  const dayStart = new Date(date);
+  dayStart.setHours(0, 0, 0, 0);
+  const start = new Date(date.getFullYear(), 0, 0);
+  const N = Math.floor((dayStart - start) / 86400000);
+  const lngHour = lon / 15;
+  const compute = (isRise) => {
+    const t = N + (((isRise ? 6 : 18) - lngHour) / 24);
+    const M = (0.9856 * t) - 3.289;
+    let L = M + (1.916 * Math.sin(rad * M)) + (0.020 * Math.sin(rad * 2 * M)) + 282.634;
+    L = (L + 360) % 360;
+    let RA = Math.atan(0.91764 * Math.tan(rad * L)) / rad;
+    RA = (RA + 360) % 360;
+    const Lquadrant = Math.floor(L / 90) * 90;
+    const RAquadrant = Math.floor(RA / 90) * 90;
+    RA = (RA + (Lquadrant - RAquadrant)) / 15;
+    const sinDec = 0.39782 * Math.sin(rad * L);
+    const cosDec = Math.cos(Math.asin(sinDec));
+    const cosH = (Math.cos(rad * zenith) - (sinDec * Math.sin(rad * lat))) / (cosDec * Math.cos(rad * lat));
+    if (cosH > 1 || cosH < -1) return null;
+    let H = isRise ? 360 - (Math.acos(cosH) / rad) : (Math.acos(cosH) / rad);
+    H /= 15;
+    const T = H + RA - (0.06571 * t) - 6.622;
+    const UT = (T - lngHour + 24) % 24;
+    const out = new Date(dayStart);
+    out.setUTCHours(Math.floor(UT), Math.round((UT % 1) * 60), 0, 0);
+    return out;
+  };
+  const sunrise = compute(true);
+  const sunset = compute(false);
+  const next = sunrise && date < sunrise ? { label: 'sunrise', time: sunrise } : sunset && date < sunset ? { label: 'sunset', time: sunset } : sunrise ? { label: 'tomorrow sunrise', time: new Date(sunrise.getTime() + 86400000) } : null;
+  return { sunrise, sunset, next };
+}
+
 function App() {
   const [activeTab, setActiveTab] = useStoredState('mapPi.activeTab', 'dashboard');
   const [settings, setSettings] = useStoredState('mapPi.settings', {
@@ -177,6 +253,10 @@ function App() {
   const [queuedRequest, setQueuedRequest] = useState('');
   const [trailGeometry, setTrailGeometry] = useState(null);
   const [trailGeometryStatus, setTrailGeometryStatus] = useState('Loading OSM trail geometry…');
+  const [lastKnownLocation, setLastKnownLocation] = useStoredState('mapPi.lastKnownLocation', null);
+  const [sosMarker, setSosMarker] = useStoredState('mapPi.sosMarker', null);
+  const [geoWatchId, setGeoWatchId] = useState(null);
+  const [emergencyStatus, setEmergencyStatus] = useState('SOS marker is local until Supabase/backend sync is wired.');
 
   useEffect(() => {
     fetch('/trails/grafton-speck-osm.geojson')
@@ -211,7 +291,11 @@ function App() {
   const low = Math.min(startIdx, endIdx);
   const high = Math.max(startIdx, endIdx);
   const route = ordered.slice(low, high + 1);
-  const current = position || manualPosition;
+  const current = position || lastKnownLocation || manualPosition;
+  const trailMeta = useMemo(() => getTrailMeta(trailGeometry), [trailGeometry]);
+  const snappedRoute = useMemo(() => planner.area === 'graftonSpeck' ? route.map(w => snapWaypointToTrail(w, trailMeta)) : route, [route, trailMeta, planner.area]);
+  const snappedCurrent = useMemo(() => nearestTrailPoint(current, trailMeta), [current, trailMeta]);
+  const sunInfo = useMemo(() => calcSunTimes(new Date(), current.lat, current.lon), [current.lat, current.lon]);
   const destination = useMemo(() => {
     if (planner.destinationMode === 'coords') return parseCoord(planner.coordText) ? { ...parseCoord(planner.coordText), name: planner.destinationName || 'Custom coordinate destination', type: 'Custom' } : null;
     if (planner.destinationMode === 'map') return area.waypoints.find(w => w.id === planner.selectedMapId) || route.at(-1);
@@ -223,17 +307,17 @@ function App() {
   }, [planner, area.waypoints, route, current]);
 
   const navigation = useMemo(() => {
-    const distances = route.map(w => ({ ...w, distance: haversineMiles(current, w) ?? Infinity }));
+    const distances = snappedRoute.map(w => ({ ...w, distance: haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }) ?? Infinity }));
     const nearest = distances.reduce((best, item, idx) => item.distance < best.distance ? { ...item, idx } : best, { distance: Infinity, idx: 0 });
     const next = distances.find((_, idx) => idx > nearest.idx) || distances.at(-1);
     const last = [...distances].reverse().find((_, rIdx) => (distances.length - 1 - rIdx) < nearest.idx) || distances[0];
     const toDestination = haversineMiles(current, destination);
-    const routeMiles = routeDistance(route);
+    const routeMiles = trailMeta.totalMiles || routeDistance(snappedRoute);
     const completedByMile = Math.max(0, ((nearest.mile || route[0]?.mile || 0) - (route[0]?.mile || 0)));
-    const routeTrailMiles = Math.max(0.01, Math.abs((route.at(-1)?.mile || 0) - (route[0]?.mile || 0)));
+    const routeTrailMiles = Math.max(0.01, trailMeta.totalMiles || Math.abs((snappedRoute.at(-1)?.mile || 0) - (snappedRoute[0]?.mile || 0)));
     const progress = Math.min(100, Math.max(0, (completedByMile / routeTrailMiles) * 100));
-    return { nearest, next, last, toDestination, routeMiles, progress };
-  }, [route, current, destination]);
+    return { nearest, next, last, toDestination, routeMiles, progress, snappedCurrent };
+  }, [snappedRoute, current, destination]);
 
   useEffect(() => {
     if (hike.active && destination && navigation.toDestination != null && navigation.toDestination <= Number(settings.autoEndRadiusMiles)) {
@@ -247,16 +331,38 @@ function App() {
 
   const getLocation = () => {
     if (!navigator.geolocation) return setGeoStatus('Browser geolocation is not available on this device.');
-    setGeoStatus('Requesting phone GPS permission…');
-    navigator.geolocation.getCurrentPosition(
+    setGeoStatus('Starting high-accuracy live GPS watch…');
+    if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
+    const watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        setPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, label: 'Phone GPS', timestamp: new Date(pos.timestamp).toLocaleTimeString() });
-        setGeoStatus('Live phone location locked.');
+        const live = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, label: 'Live phone GPS', timestamp: new Date(pos.timestamp).toLocaleString() };
+        setPosition(live);
+        setLastKnownLocation(live);
+        setGeoStatus(`Live GPS tracking · ±${Math.round(pos.coords.accuracy || 0)}m · ${live.timestamp}`);
       },
       (err) => setGeoStatus(`Location unavailable: ${err.message}`),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
     );
+    setGeoWatchId(watchId);
   };
+  const stopLiveTracking = () => {
+    if (geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(geoWatchId);
+    setGeoWatchId(null);
+    setGeoStatus('Live GPS watch stopped. Last known location remains available.');
+  };
+  const raiseSOS = async () => {
+    const marker = { ...current, createdAt: new Date().toLocaleString(), status: 'HELP REQUESTED' };
+    setSosMarker(marker);
+    const text = buildEmergencyText({ settings, current, snappedCurrent, destination, sosMarker: marker });
+    try {
+      if (navigator.share) await navigator.share({ title: 'Map-Pi SOS marker', text });
+      else if (navigator.clipboard) await navigator.clipboard.writeText(text);
+      setEmergencyStatus('SOS marker saved locally and emergency text shared/copied. Shared map visibility still needs backend sync.');
+    } catch (error) {
+      setEmergencyStatus(`SOS marker saved locally. Share/copy skipped: ${error.message}`);
+    }
+  };
+  const clearSOS = () => { setSosMarker(null); setEmergencyStatus('SOS marker cleared locally.'); };
   const useManualCoords = () => {
     const parsed = parseCoord(planner.coordText);
     if (!parsed) return setGeoStatus('Manual coordinate format should be: 34.6274, -84.1933');
@@ -289,10 +395,10 @@ function App() {
 
     <nav className="tab-bar glass">{tabs.map(([id, label, Icon]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}><Icon size={17}/><span>{label}</span></button>)}</nav>
 
-    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={route} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={trailGeometry} trailGeometryStatus={trailGeometryStatus} />}
-    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={route} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={trailGeometry} />}
-    {activeTab === 'navigate' && <Navigate settings={settings} route={route} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} />}
-    {activeTab === 'waypoints' && <Waypoints settings={settings} route={route} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
+    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={trailGeometry} trailGeometryStatus={trailGeometryStatus} sosMarker={sosMarker} sunInfo={sunInfo} />}
+    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={trailGeometry} sosMarker={sosMarker} />}
+    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} />}
+    {activeTab === 'waypoints' && <Waypoints settings={settings} route={snappedRoute} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
     {activeTab === 'drops' && <Drops drops={defaultDrops} queuedRequest={queuedRequest} setQueuedRequest={setQueuedRequest} queueSupplyRequest={queueSupplyRequest} requestQueue={hike.requestQueue || []} destination={destination} />}
     {activeTab === 'plant' && <Plant plantPhoto={plantPhoto} handlePlantPhoto={handlePlantPhoto} />}
     {activeTab === 'settings' && <SettingsPage settings={settings} setSettingsPatch={setSettingsPatch} planner={planner} setPlannerPatch={setPlannerPatch} hike={hike} setHike={setHike} />}
@@ -301,15 +407,16 @@ function App() {
   </main>;
 }
 
-function Dashboard({ settings, area, route, hike, current, destination, navigation, setActiveTab, trailGeometry, trailGeometryStatus }) {
+function Dashboard({ settings, area, route, hike, current, destination, navigation, setActiveTab, trailGeometry, trailGeometryStatus, sosMarker, sunInfo }) {
   return <section className="page-grid">
     <Metric icon={Flag} label="Selected route" value={`${route[0]?.name} → ${route.at(-1)?.name}`} sub={area.description} />
     <Metric icon={Navigation} label="To destination" value={fmtMiles(navigation.toDestination, settings.units)} sub={destination?.name || 'No destination'} />
     <Metric icon={MapPin} label="Next waypoint" value={navigation.next?.name || '—'} sub={fmtMiles(navigation.next?.distance, settings.units)} />
     <Metric icon={Home} label="Last waypoint" value={navigation.last?.name || '—'} sub={fmtMiles(navigation.last?.distance, settings.units)} />
+    <Metric icon={ThermometerSun} label="Next light change" value={sunInfo.next ? sunInfo.next.label : '—'} sub={sunInfo.next ? `${sunInfo.next.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${formatDuration(sunInfo.next.time - new Date())}` : 'Sun data unavailable'} />
     <section className="trail-map glass wide">
       <div className="section-title"><Map/> Route overview</div>
-      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} />
+      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={trailGeometry} sosMarker={sosMarker} navigation={navigation} />
       <div className="source-note">{trailGeometryStatus} Source: OpenStreetMap contributors (ODbL). GPX copy: <code>/trails/grafton-speck-osm.gpx</code></div>
       <div className="progress"><span style={{ width: `${navigation.progress}%` }} /></div>
     </section>
@@ -322,7 +429,7 @@ function Dashboard({ settings, area, route, hike, current, destination, navigati
   </section>;
 }
 
-function Planner({ area, ordered, route, planner, setPlannerPatch, destination, navigation, useManualCoords, trailGeometry }) {
+function Planner({ area, ordered, route, planner, setPlannerPatch, destination, navigation, useManualCoords, trailGeometry, sosMarker }) {
   return <section className="page-grid two-col">
     <section className="panel glass">
       <div className="section-title"><Map/> Route planner</div>
@@ -339,23 +446,26 @@ function Planner({ area, ordered, route, planner, setPlannerPatch, destination, 
       {(planner.destinationMode === 'coords' || planner.destinationMode === 'name') && <><label>Name<input value={planner.destinationName} onChange={e => setPlannerPatch({ destinationName: e.target.value })} placeholder="Camp, road, water source…" /></label>{planner.destinationMode === 'coords' && <label>Coordinates<input value={planner.coordText} onChange={e => setPlannerPatch({ coordText: e.target.value })} placeholder="34.6274, -84.1933" /></label>}<button className="secondary" onClick={useManualCoords}>Use coordinates as current position</button></>}
       <div className="chosen-destination"><strong>Chosen:</strong> {destination?.name || 'Invalid coordinate'} · {fmtMiles(navigation.toDestination)}</div>
     </section>
-    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={area.waypoints} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} /></section>
+    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={trailGeometry} sosMarker={sosMarker} /></section>
   </section>;
 }
 
-function Navigate({ settings, route, hike, current, destination, navigation, geoStatus, getLocation, startHike, endHike, resetHike, setManualPosition }) {
+function Navigate({ settings, route, hike, current, destination, navigation, geoStatus, getLocation, stopLiveTracking, geoWatchId, startHike, endHike, resetHike, setManualPosition, lastKnownLocation, sunInfo, raiseSOS, clearSOS, sosMarker, emergencyStatus }) {
+  const emergencyText = buildEmergencyText({ settings, current, snappedCurrent: navigation.snappedCurrent, destination, sosMarker });
   return <section className="page-grid">
     <Metric icon={LocateFixed} label="Current position" value={current.label || 'Manual/GPS'} sub={`${Number(current.lat).toFixed(4)}, ${Number(current.lon).toFixed(4)}`} />
     <Metric icon={Navigation} label="Distance to next" value={fmtMiles(navigation.next?.distance, settings.units)} sub={navigation.next?.name} />
     <Metric icon={Home} label="Distance to last" value={fmtMiles(navigation.last?.distance, settings.units)} sub={navigation.last?.name} />
     <Metric icon={Flag} label="Distance to destination" value={fmtMiles(navigation.toDestination, settings.units)} sub={destination?.name} />
-    <section className="panel glass wide"><div className="section-title"><Activity/> Hike controls</div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}><LocateFixed size={16}/> Use phone GPS</button><button className="primary" onClick={startHike} disabled={hike.active}><Play size={16}/> Start hike</button><button className="danger" onClick={endHike} disabled={!hike.active}><Square size={16}/> End hike</button><button className="secondary" onClick={resetHike}><RotateCcw size={16}/> Reset</button></div></section>
-    <section className="panel glass"><div className="section-title"><ListChecks/> Route queue</div>{route.map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.lat, lon: w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · mile {w.mile}</span></button>)}</section>
+    <Metric icon={ThermometerSun} label="Sunrise / sunset" value={sunInfo.sunrise ? sunInfo.sunrise.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'} sub={sunInfo.sunset ? `Sunset ${sunInfo.sunset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · next ${sunInfo.next?.label || '—'} in ${sunInfo.next ? formatDuration(sunInfo.next.time - new Date()) : '—'}` : 'Sun data unavailable'} />
+    <section className="panel glass wide"><div className="section-title"><Activity/> Hike controls</div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}><LocateFixed size={16}/> {geoWatchId == null ? 'Start live GPS' : 'Restart live GPS'}</button><button className="secondary" onClick={stopLiveTracking} disabled={geoWatchId == null}>Stop live GPS</button><button className="primary" onClick={startHike} disabled={hike.active}><Play size={16}/> Start hike</button><button className="danger" onClick={endHike} disabled={!hike.active}><Square size={16}/> End hike</button><button className="secondary" onClick={resetHike}><RotateCcw size={16}/> Reset</button></div></section>
+    <section className="panel glass"><div className="section-title"><ListChecks/> Route queue</div>{route.map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · route snap {w.snap ? `${w.snap.distance.toFixed(2)} mi` : '—'}</span></button>)}</section>
+    <section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
   </section>;
 }
 
 function Waypoints({ settings, route, current, navigation, setPlannerPatch, setManualPosition, setActiveTab }) {
-  return <section className="panel glass"><div className="section-title"><ListChecks/> Waypoints</div><div className="waypoint-list">{route.map((w) => <article key={w.id} className={navigation.nearest?.id === w.id ? 'nearest waypoint-card' : 'waypoint-card'}><div><strong>{w.type}: {w.name}</strong><span>Mile {w.mile} · {w.detail}</span><small>From current: {fmtMiles(haversineMiles(current, w), settings.units)}</small></div><div className="card-actions"><button onClick={() => { setPlannerPatch({ destinationMode: 'dropdown', destinationId: w.id }); setActiveTab('navigate'); }}>Navigate</button><button onClick={() => setManualPosition({ lat: w.lat, lon: w.lon, label: w.name })}>Set current</button></div></article>)}</div></section>;
+  return <section className="panel glass"><div className="section-title"><ListChecks/> Waypoints</div><div className="waypoint-list">{route.map((w) => <article key={w.id} className={navigation.nearest?.id === w.id ? 'nearest waypoint-card' : 'waypoint-card'}><div><strong>{w.type}: {w.name}</strong><span>Mile {w.mile} · {w.detail}</span><small>From current: {fmtMiles(haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }), settings.units)}</small></div><div className="card-actions"><button onClick={() => { setPlannerPatch({ destinationMode: 'dropdown', destinationId: w.id }); setActiveTab('navigate'); }}>Navigate</button><button onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}>Set current</button></div></article>)}</div></section>;
 }
 
 function Drops({ drops, queuedRequest, setQueuedRequest, queueSupplyRequest, requestQueue, destination }) {
@@ -370,13 +480,13 @@ function SettingsPage({ settings, setSettingsPatch, planner, setPlannerPatch, hi
   return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Settings/> Preferences</div><label>Hiker name<input value={settings.hikerName} onChange={e => setSettingsPatch({ hikerName: e.target.value })} /></label><label>Units<select value={settings.units} onChange={e => setSettingsPatch({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Expected pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => setSettingsPatch({ paceMph: Number(e.target.value) })} /></label><label>Auto-end radius miles<input type="number" step="0.01" value={settings.autoEndRadiusMiles} onChange={e => setSettingsPatch({ autoEndRadiusMiles: Number(e.target.value) })} /></label><label>Theme<select value={settings.theme} onChange={e => setSettingsPatch({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label></section><section className="panel glass"><div className="section-title"><Save/> Local data</div><p className="muted">Settings, route, hike state, and queued requests persist in this browser with localStorage.</p><button className="danger" onClick={() => { localStorage.clear(); setHike({ active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] }); }}>Clear local app data</button><textarea value={planner.notes} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Trail notes, gear reminders, water reports…" /></section></section>;
 }
 
-function RouteMap({ route, current, destination, onPick, trailGeometry }) {
+function RouteMap({ route, current, destination, onPick, trailGeometry, sosMarker, navigation }) {
   const trailSegments = (trailGeometry?.features || [])
     .map(feature => feature.geometry?.coordinates || [])
     .filter(coords => coords.length > 1);
   const geometryPoints = trailSegments.flat();
-  const waypointPoints = route.map(w => [w.lon, w.lat]);
-  const allPoints = [...geometryPoints, ...waypointPoints];
+  const waypointPoints = route.map(w => [w.displayLon || w.lon, w.displayLat || w.lat]);
+  const allPoints = [...geometryPoints, ...waypointPoints, ...(current ? [[current.lon, current.lat]] : []), ...(sosMarker ? [[sosMarker.lon, sosMarker.lat]] : [])];
   const minLon = Math.min(...allPoints.map(p => p[0]));
   const maxLon = Math.max(...allPoints.map(p => p[0]));
   const minLat = Math.min(...allPoints.map(p => p[1]));
@@ -393,7 +503,9 @@ function RouteMap({ route, current, destination, onPick, trailGeometry }) {
   }).join(' ');
   return <div className="map-choice"><svg viewBox="0 0 360 520" role="img" aria-label="Interactive route map">
     {trailSegments.length ? trailSegments.map((coords, idx) => <path key={`osm-${idx}`} className="osm-trail" d={linePath(coords)} />) : <path className="terrain" d="M42 486 C98 430,66 384,136 334 C208 278,105 230,195 164 C244 128,218 74,310 34" />}
-    {route.map((w) => { const [x, y] = project([w.lon, w.lat]); const isDest = destination?.id === w.id || destination?.name === w.name; return <g key={w.id} className={`pin ${isDest ? 'dest' : ''}`} onClick={() => onPick?.(w)}><circle cx={x} cy={y} r={isDest ? 11 : 8}/><text x={x+14} y={y+4}>{w.mile} · {w.name}</text></g>; })}
+    {route.map((w) => { const [x, y] = project([w.displayLon || w.lon, w.displayLat || w.lat]); const isDest = destination?.id === w.id || destination?.name === w.name; return <g key={w.id} className={`pin ${isDest ? 'dest' : ''}`} onClick={() => onPick?.(w)}><circle cx={x} cy={y} r={isDest ? 11 : 8}/><title>{`${w.name} · ${w.type} · from you ${fmtMiles(haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }))} · snap offset ${w.snap ? fmtMiles(w.snap.distance) : 'n/a'}`}</title><text x={x+14} y={y+4}>{w.mile} · {w.name}</text></g>; })}
+    {current && (() => { const [cx, cy] = project([current.lon, current.lat]); return <g className="pin current-pin"><circle cx={cx} cy={cy} r="9"/><title>{`Current / last known · ${current.lat.toFixed(5)}, ${current.lon.toFixed(5)} · off route ${navigation?.snappedCurrent ? fmtMiles(navigation.snappedCurrent.distance) : '—'}`}</title><text x={cx+14} y={cy+4}>You</text></g>; })()}
+    {sosMarker && (() => { const [sx, sy] = project([sosMarker.lon, sosMarker.lat]); return <g className="pin sos-pin"><circle cx={sx} cy={sy} r="13"/><title>{`SOS marker · ${sosMarker.createdAt}`}</title><text x={sx+15} y={sy+4}>SOS</text></g>; })()}
   </svg><div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div></div>;
 }
 

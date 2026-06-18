@@ -46,6 +46,11 @@ select option { background: #17331f; color: #f7f1df; }
 .pin { cursor: pointer; }
 .pin circle { fill: #bfe0a9; stroke: #112317; stroke-width: 3; transition: .18s ease; }
 .pin.dest circle { fill: #ffdb77; stroke: #fff6c8; }
+.current-pin circle { fill: #6db7ff; stroke: #e8f5ff; animation: pulse 1.5s infinite; }
+.sos-pin circle { fill: #ff4d3d; stroke: #ffe3dd; animation: sosPulse 1s infinite; }
+.emergency-panel textarea { min-height: 135px; font-size: .86rem; }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+@keyframes sosPulse { 0%,100% { transform: scale(1); transform-origin: center; } 50% { transform: scale(1.14); transform-origin: center; } }
 .pin:hover circle { transform: scale(1.15); transform-origin: center; }
 .pin text { fill: #fff5d6; font-size: 10px; font-weight: 850; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 3; }
 .progress { height: 12px; background: rgba(255,255,255,.1); border-radius: 999px; overflow: hidden; margin-top: 16px; }
