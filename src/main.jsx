@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, AlertTriangle, Backpack, Bluetooth, Camera, Compass, Database, Download, Droplets, Flag, GitBranch, Home, Leaf, ListChecks, LocateFixed, Map, MapPin, Mountain, Navigation, Play, RotateCcw, Save, Send, Settings, ShieldAlert, Smartphone, Square, TentTree, ThermometerSun, Upload, Users, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, Backpack, Bluetooth, Camera, Compass, Database, Download, Droplets, Eye, EyeOff, Fish, Flag, GitBranch, HelpCircle, Home, Leaf, ListChecks, LocateFixed, Map, MapPin, Mountain, Navigation, Play, RotateCcw, Route, Save, Send, Settings, ShieldAlert, Smartphone, Square, TentTree, ThermometerSun, Upload, Users, Waves, Wifi } from 'lucide-react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import './styles.css';
@@ -13,9 +13,9 @@ const AREAS = {
     trail: 'Appalachian Trail',
     description: 'Springer Mountain to Neel Gap shakedown stretch.',
     waypoints: [
-      { id: 'springer', type: 'Start', name: 'Springer Mountain', mile: 0, lat: 34.6274, lon: -84.1933, detail: 'Southern terminus. Start plaque and baseline check.' },
+      { id: 'springer', type: 'Summit', name: 'Springer Mountain', mile: 0, lat: 34.6274, lon: -84.1933, detail: 'Southern terminus. Start plaque and baseline check.', amenities: ['mountain'] },
       { id: 'stover', type: 'Water', name: 'Stover Creek', mile: 2.8, lat: 34.6512, lon: -84.1667, detail: 'Water/filter checkpoint.' },
-      { id: 'hawk', type: 'Shelter', name: 'Hawk Mountain Shelter', mile: 8.1, lat: 34.6851, lon: -84.1103, detail: 'Camp/shelter waypoint.' },
+      { id: 'hawk', type: 'Shelter', name: 'Hawk Mountain Shelter', mile: 8.1, lat: 34.6851, lon: -84.1103, detail: 'Camp/shelter waypoint.', amenities: ['camp'] },
       { id: 'hightower', type: 'Road', name: 'Hightower Gap', mile: 8.6, lat: 34.6898, lon: -84.1014, detail: 'Road crossing and bailout reference.' },
       { id: 'gooch', type: 'Shelter', name: 'Gooch Mountain Shelter', mile: 15.8, lat: 34.7294, lon: -84.0151, detail: 'Shelter and rest point.' },
       { id: 'woody', type: 'Road', name: 'Woody Gap', mile: 20.5, lat: 34.6776, lon: -83.9996, detail: 'Road crossing / possible pickup.' },
@@ -75,11 +75,11 @@ const AREAS = {
     trail: 'Appalachian Trail / Grafton Notch',
     description: 'Short Maine test route for ME 26 / Grafton Notch to Old Speck and Speck Pond.',
     waypoints: [
-      { id: 'rt26-grafton', type: 'Start/Road', name: 'Route 26 / Grafton Notch', mile: 0.0, lat: 44.5935, lon: -70.9466, detail: 'ME 26 trailhead/parking access. Good field-test start point.' },
-      { id: 'eyebrow-jct', type: 'Junction', name: 'Eyebrow Trail junction area', mile: 1.1, lat: 44.5865, lon: -70.9498, detail: 'Approximate junction area; confirm with blazes/map on trail.' },
-      { id: 'old-speck', type: 'Summit', name: 'Old Speck Mountain', mile: 3.5, lat: 44.5709, lon: -70.9536, detail: 'Major climb and weather/wind checkpoint.' },
-      { id: 'mahoosuc-arm', type: 'Mountain', name: 'Mahoosuc Arm', mile: 5.1, lat: 44.5606, lon: -70.9781, detail: 'Steep approach near Speck Pond; take it slow.' },
-      { id: 'speck-pond', type: 'Destination', name: 'Speck Pond', mile: 6.0, lat: 44.5637, lon: -70.9734, detail: 'Your near-term destination/test area. Pond/shelter coordinates from OSM/Nominatim.' },
+      { id: 'rt26-grafton', type: 'Road/Trailhead', name: 'Route 26 / Grafton Notch', mile: 0.0, lat: 44.5935, lon: -70.9466, detail: 'ME 26 trailhead/parking access. Good field-test start point.' },
+      { id: 'eyebrow-jct', type: 'Junction', name: 'Eyebrow Trail junction area', mile: 1.1, lat: 44.5865, lon: -70.9498, detail: 'Approximate junction area; confirm with blazes/map on trail.', amenities: ['alternate-route'] },
+      { id: 'old-speck', type: 'Summit', name: 'Old Speck Mountain', mile: 3.5, lat: 44.5709, lon: -70.9536, detail: 'Major climb and weather/wind checkpoint.', amenities: ['mountain'] },
+      { id: 'mahoosuc-arm', type: 'Mountain', name: 'Mahoosuc Arm', mile: 5.1, lat: 44.5606, lon: -70.9781, detail: 'Steep approach near Speck Pond; take it slow.', amenities: ['mountain'] },
+      { id: 'speck-pond', type: 'Pond/Shelter', name: 'Speck Pond', mile: 6.0, lat: 44.5637, lon: -70.9734, detail: 'Your near-term destination/test area. Pond/shelter coordinates from OSM/Nominatim.', amenities: ['water', 'camp', 'fishing-reported'] },
       { id: 'mahoosuc-notch-local', type: 'Notch', name: 'Mahoosuc Notch', mile: 7.4, lat: 44.5385, lon: -70.9892, detail: 'Optional beyond-Speck reference; slow boulder travel.' },
     ],
   },
@@ -276,383 +276,154 @@ function calcSunTimes(date, lat, lon) {
   return { sunrise, sunset, next };
 }
 
+
+
+const FEATURE_DEFINITIONS = {
+  mountains: { label: 'Mountains/summits', icon: '⛰️', color: '#d9d2c3', matches: ['Mountain', 'Summit', 'Terminus', 'mountain'] },
+  camps: { label: 'Camp/shelter', icon: '⛺', color: '#e2a241', matches: ['Shelter', 'Camp', 'Pond/Shelter', 'camp'] },
+  water: { label: 'Water/streams', icon: '💧', color: '#64d7ff', matches: ['Water', 'Pond', 'Dam', 'Stream', 'water'] },
+  fishing: { label: 'Fishing reported', icon: '🐟', color: '#7ee06f', matches: ['fishing-reported'] },
+  trailheads: { label: 'Roads/trailheads', icon: '🅿️', color: '#cbd5e1', matches: ['Road', 'Start', 'Trailhead', 'Visitor Center', 'Town Access'] },
+  alternates: { label: 'Alternate trails', icon: '↔️', color: '#ff8c42', matches: ['Junction', 'alternate-route'] },
+};
+const DEFAULT_VISIBILITY = Object.fromEntries(Object.keys(FEATURE_DEFINITIONS).map((key) => [key, true]));
+const ROUTE_COLORS = ['#3cff73', '#ffdb77', '#52c7ff', '#ff8c42', '#d47bff', '#ff6f61'];
+const WATER_REPORTS = [
+  { id: 'bear-river', name: 'Bear River crossing', type: 'Stream', lat: 44.5912, lon: -70.9486, detail: 'Treat/filter. Seasonal flow changes after rain.', amenities: ['water'] },
+  { id: 'speck-pond-water', name: 'Speck Pond outlet', type: 'Pond', lat: 44.5634, lon: -70.9731, detail: 'Water present near pond/shelter. Fishing reported; verify local rules and current regulations before casting.', amenities: ['water', 'fishing-reported'] },
+  { id: 'cascade-brook', name: 'Cascade Brook area', type: 'Stream', lat: 44.5851, lon: -70.9519, detail: 'Likely water on the approach; confirm in field.', amenities: ['water'] },
+];
+const ALT_ROUTE_LIBRARY = [
+  { id: 'at-main', areaId: 'graftonSpeck', name: 'AT main line', color: ROUTE_COLORS[0], kind: 'Primary', waypointIds: ['rt26-grafton', 'eyebrow-jct', 'old-speck', 'mahoosuc-arm', 'speck-pond'] },
+  { id: 'eyebrow-loop', areaId: 'graftonSpeck', name: 'Eyebrow side option', color: ROUTE_COLORS[3], kind: 'Alternate', points: [[44.5935, -70.9466], [44.5891, -70.9447], [44.5842, -70.9476], [44.5865, -70.9498]], note: 'Visible route variation only; verify blaze/signage before using.' },
+  { id: 'speck-to-notch', areaId: 'graftonSpeck', name: 'Beyond Speck to Mahoosuc Notch', color: ROUTE_COLORS[2], kind: 'Extension', waypointIds: ['speck-pond', 'mahoosuc-notch-local'] },
+];
+const FLOW_DIRECTIONS = [
+  { title: '1. Pick a route', text: 'Choose area, direction, start, and end. Save the route before field prep so it stays on the device.' },
+  { title: '2. Turn layers on/off', text: 'Use map layer toggles for mountains, camp/shelter, water, fishing reports, trailheads, and alternate routes.' },
+  { title: '3. Prep offline', text: 'Open Prep, update the device, export GPX/emergency JSON, and confirm weather/vitality before leaving service.' },
+  { title: '4. Start hike', text: 'Use Hike view for GPS, next checkpoints, manual position fallback, markers, and SOS marker draft.' },
+  { title: '5. Review and adjust', text: 'End/log the hike, review mileage/calories, then update route notes for the next pass.' },
+];
+function waypointFeatureKeys(item) { const haystack = `${item.type || ''} ${(item.amenities || []).join(' ')}`.toLowerCase(); return Object.entries(FEATURE_DEFINITIONS).filter(([, def]) => def.matches.some(match => haystack.includes(match.toLowerCase()))).map(([key]) => key); }
+function featureVisible(item, visibility = DEFAULT_VISIBILITY) { const keys = waypointFeatureKeys(item); return !keys.length || keys.some(key => visibility[key] !== false); }
+function featureIcon(item) { const key = waypointFeatureKeys(item)[0]; return FEATURE_DEFINITIONS[key]?.icon || '•'; }
+function featureColor(item, fallback = '#bfe0a9') { const key = waypointFeatureKeys(item)[0]; return FEATURE_DEFINITIONS[key]?.color || fallback; }
+function routeVariantsForArea(area, route) { const areaId = Object.entries(AREAS).find(([, a]) => a === area)?.[0]; return ALT_ROUTE_LIBRARY.filter(v => v.areaId === areaId).map((variant, idx) => ({ ...variant, color: variant.color || ROUTE_COLORS[idx % ROUTE_COLORS.length], points: variant.points || (variant.waypointIds || []).map(id => route.find(w => w.id === id) || area.waypoints.find(w => w.id === id)).filter(Boolean).map(w => [w.displayLat || w.lat, w.displayLon || w.lon]) })); }
+function HelpTip({ enabled, children }) { return enabled ? <p className="help-tip"><HelpCircle size={15}/> {children}</p> : null; }
+
+const ROUTE_LIBRARY_VERSION = 'hiker-map-layers-20260621';
+const DEFAULT_WEATHER = { tempF: 72, humidity: 58, airQualityIndex: 38, windMph: 8, condition: 'Partly cloudy', elevationGainFt: 2400, source: 'manual estimate', updatedAt: null };
+const DEFAULT_PROFILE = { displayName: 'CAK3D', weightLb: 185, heightIn: 70, age: 35, packWeightLb: 24, restingHeartRate: 68 };
+function uid(prefix = 'id') { return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; }
+function clamp(value, min, max) { return Math.min(max, Math.max(min, value)); }
+function areaRoute(area, planner) { const ordered = planner.direction === 'southbound' ? [...area.waypoints].reverse() : area.waypoints; const startIdx = Math.max(0, ordered.findIndex(w => w.id === planner.startId)); const endIdxRaw = ordered.findIndex(w => w.id === planner.endId); const endIdx = endIdxRaw >= 0 ? endIdxRaw : ordered.length - 1; return { ordered, route: ordered.slice(Math.min(startIdx, endIdx), Math.max(startIdx, endIdx) + 1) }; }
+function makeRoutePlan({ planner, area, route, navigation, visibility = 'private' }) { return { id: uid('route'), name: planner.planName || `${area.label} plan`, areaId: planner.area, areaLabel: area.label, direction: planner.direction, startId: planner.startId, endId: planner.endId, destinationId: planner.destinationId, selectedMapId: planner.selectedMapId, destinationMode: planner.destinationMode, destinationName: planner.destinationName, coordText: planner.coordText, visibility, notes: planner.notes || '', status: 'planned', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), estimatedMiles: Number((navigation?.routeMiles || routeDistance(route) || 0).toFixed(2)), waypointCount: route.length }; }
+function planToPlanner(plan) { return { area: plan.areaId, direction: plan.direction, startId: plan.startId, endId: plan.endId, destinationMode: plan.destinationMode || 'dropdown', destinationId: plan.destinationId || plan.endId, destinationName: plan.destinationName || '', coordText: plan.coordText || '', notes: plan.notes || '', selectedMapId: plan.selectedMapId || plan.destinationId || plan.endId, planName: plan.name || '', visibility: plan.visibility || 'private' }; }
+function estimateWeather(current, manual = DEFAULT_WEATHER) { const tempF = Number(manual.tempF || 65); const humidity = Number(manual.humidity || 50); const windMph = Number(manual.windMph || 0); const aqi = Number(manual.airQualityIndex || 25); const mountainCooling = Math.round((Number(manual.elevationGainFt || 0) / 1000) * 3.2); const heatIndex = tempF >= 80 ? -42.379 + 2.04901523 * tempF + 10.14333127 * humidity - 0.22475541 * tempF * humidity - 0.00683783 * tempF * tempF - 0.05481717 * humidity * humidity + 0.00122874 * tempF * tempF * humidity + 0.00085282 * tempF * humidity * humidity - 0.00000199 * tempF * tempF * humidity * humidity : tempF; const feelsLike = Math.round((tempF >= 80 ? heatIndex : tempF) - Math.min(8, windMph * 0.25) - mountainCooling); const vitality = clamp(100 - Math.max(0, tempF - 72) * 1.4 - Math.max(0, humidity - 55) * 0.32 - Math.max(0, aqi - 50) * 0.28 - Math.max(0, windMph - 15) * 0.5, 35, 100); const risk = vitality > 82 ? 'green' : vitality > 65 ? 'yellow' : 'red'; return { ...manual, lat: current?.lat, lon: current?.lon, feelsLike, vitality: Math.round(vitality), risk, summary: `${manual.condition || 'Field estimate'} · feels ${feelsLike}°F · AQI ${aqi}`, updatedAt: manual.updatedAt || new Date().toISOString() }; }
+function estimateCalories({ miles, profile, weather, paceMph }) { const weight = Number(profile.weightLb || 180); const pack = Number(profile.packWeightLb || 0); const base = miles * weight * 0.53; return Math.round(base * (1 + Math.min(0.32, pack / 120)) * (1 + Math.max(0, (Number(weather?.feelsLike || 70) - 70) * 0.006)) * (1 + Math.max(0, Number(paceMph || 2.2) - 2.2) * 0.08)); }
+function summarizeStats(hikeLog, activeRouteId) { const completed = hikeLog.filter(h => h.completed !== false); const totalMiles = completed.reduce((sum, h) => sum + Number(h.miles || 0), 0); const totalCalories = completed.reduce((sum, h) => sum + Number(h.calories || 0), 0); const routeMiles = completed.filter(h => h.routeId === activeRouteId).reduce((sum, h) => sum + Number(h.miles || 0), 0); const last = completed.at(-1); return { hikes: completed.length, totalMiles, totalCalories, routeMiles, lastMiles: Number(last?.miles || 0), lastAt: last?.endedAt || last?.createdAt }; }
+
 function App() {
-  const [activeTab, setActiveTab] = useStoredState('mapPi.activeTab', 'dashboard');
-  const [settings, setSettings] = useStoredState('mapPi.settings', {
-    units: 'miles', paceMph: 2.2, autoEndRadiusMiles: 0.12, theme: 'forest', gpsSource: 'phone', hikerName: 'CAK3D', offlineMode: true, mapLayer: 'terrain', fitMode: 'trail', showCurrentWhenFar: false,
-  });
-  const [planner, setPlanner] = useStoredState('mapPi.planner', {
-    area: 'graftonSpeck', direction: 'northbound', startId: 'rt26-grafton', endId: 'speck-pond', destinationMode: 'dropdown', destinationId: 'speck-pond', destinationName: '', coordText: '44.5637, -70.9734', notes: 'Field test: Route 26 / Grafton Notch to Speck Pond.', selectedMapId: 'speck-pond',
-  });
+  const [activeTab, setActiveTab] = useStoredState('mapPi.activeTab', 'plan');
+  const [saveStatus, setSaveStatus] = useState('');
+  const [settings, setSettings] = useStoredState('mapPi.settings', { units: 'miles', paceMph: 2.2, autoEndRadiusMiles: 0.12, theme: 'forest', hikerName: 'CAK3D', mapLayer: 'osm', fitMode: 'trail', showCurrentWhenFar: false, fieldMode: false, helpEnabled: true, mapFeatureVisibility: DEFAULT_VISIBILITY, routePalette: ROUTE_COLORS });
+  const [planner, setPlanner] = useStoredState('mapPi.planner', { area: 'graftonSpeck', direction: 'northbound', startId: 'rt26-grafton', endId: 'speck-pond', destinationMode: 'dropdown', destinationId: 'speck-pond', destinationName: '', coordText: '44.5637, -70.9734', notes: 'Field test: Route 26 / Grafton Notch to Speck Pond.', selectedMapId: 'speck-pond', planName: 'Route 26 to Speck Pond field plan', visibility: 'private' });
+  const [routePlans, setRoutePlans] = useStoredState('mapPi.routePlans', []);
+  const [activeRoutePlanId, setActiveRoutePlanId] = useStoredState('mapPi.activeRoutePlanId', null);
+  const [savedMarkers, setSavedMarkers] = useStoredState('mapPi.savedMarkers', []);
+  const [userProfile, setUserProfile] = useStoredState('mapPi.userProfile', DEFAULT_PROFILE);
+  const [weatherInput, setWeatherInput] = useStoredState('mapPi.weatherInput', DEFAULT_WEATHER);
+  const [hikeLog, setHikeLog] = useStoredState('mapPi.hikeLog', []);
   const [hike, setHike] = useStoredState('mapPi.hike', { active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] });
   const [manualPosition, setManualPosition] = useStoredState('mapPi.manualPosition', { lat: 44.5935, lon: -70.9466, label: 'Route 26 / Grafton Notch manual start' });
   const [position, setPosition] = useState(null);
-  const [geoStatus, setGeoStatus] = useState('Idle — use phone GPS or manual coordinates.');
-  const [plantPhoto, setPlantPhoto] = useState(null);
-  const [queuedRequest, setQueuedRequest] = useState('');
   const [trailGeometry, setTrailGeometry] = useState(null);
-  const [trailGeometryStatus, setTrailGeometryStatus] = useState('Loading OSM trail geometry…');
+  const [trailGeometryStatus, setTrailGeometryStatus] = useState('Loading trail geometry…');
   const [lastKnownLocation, setLastKnownLocation] = useStoredState('mapPi.lastKnownLocation', null);
   const [sosMarker, setSosMarker] = useStoredState('mapPi.sosMarker', null);
   const [geoWatchId, setGeoWatchId] = useState(null);
-  const [emergencyStatus, setEmergencyStatus] = useState('SOS marker is local until Supabase/backend sync is wired.');
+  const [geoStatus, setGeoStatus] = useState('Idle — use phone GPS or manual coordinates.');
   const [pwaStatus, setPwaStatus] = useState('Offline shell not registered yet.');
   const [importedTrailGeometry, setImportedTrailGeometry] = useStoredState('mapPi.importedTrailGeometry', null);
+  const [fieldKitStamp, setFieldKitStamp] = useStoredState('mapPi.fieldKitStamp', null);
 
+  const flashSaved = (msg) => { setSaveStatus(msg); setTimeout(() => setSaveStatus(''), 3000); };
   useEffect(() => { registerServiceWorker(setPwaStatus); }, []);
-
-  useEffect(() => {
-    fetch('/trails/grafton-speck-osm.geojson')
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((data) => {
-        const featureCount = data?.features?.length || 0;
-        const pointCount = (data?.features || []).reduce((sum, feature) => sum + (feature.geometry?.coordinates?.length || 0), 0);
-        setTrailGeometry(data);
-        setTrailGeometryStatus(`Loaded real OSM trail geometry: ${featureCount} segments / ${pointCount} points.`);
-      })
-      .catch((error) => setTrailGeometryStatus(`Trail geometry unavailable: ${error.message}`));
-  }, []);
-
-  useEffect(() => {
-    const routePackVersion = 'nh-me-2026-06-17';
-    if (localStorage.getItem('mapPi.routePackVersion') === routePackVersion) return;
-    setPlanner({
-      area: 'graftonSpeck', direction: 'northbound', startId: 'rt26-grafton', endId: 'speck-pond', destinationMode: 'dropdown', destinationId: 'speck-pond', destinationName: '', coordText: '44.5637, -70.9734', notes: 'Field test: Route 26 / Grafton Notch to Speck Pond.', selectedMapId: 'speck-pond',
-    });
-    setManualPosition({ lat: 44.5935, lon: -70.9466, label: 'Route 26 / Grafton Notch manual start' });
-    localStorage.setItem('mapPi.routePackVersion', routePackVersion);
-  }, [setPlanner, setManualPosition]);
+  useEffect(() => { fetch('/trails/grafton-speck-osm.geojson').then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }).then(data => { setTrailGeometry(data); setTrailGeometryStatus(`Loaded ${data?.features?.length || 0} OSM trail segment(s).`); }).catch(e => setTrailGeometryStatus(`Trail geometry unavailable: ${e.message}`)); }, []);
 
   const activeTrailGeometry = importedTrailGeometry || trailGeometry;
   const area = AREAS[planner.area] || AREAS.graftonSpeck;
-  const ordered = planner.direction === 'southbound' ? [...area.waypoints].reverse() : area.waypoints;
-  const startIdx = Math.max(0, ordered.findIndex(w => w.id === planner.startId));
-  const endIdxRaw = ordered.findIndex(w => w.id === planner.endId);
-  const endIdx = endIdxRaw >= 0 ? endIdxRaw : ordered.length - 1;
-  const low = Math.min(startIdx, endIdx);
-  const high = Math.max(startIdx, endIdx);
-  const route = ordered.slice(low, high + 1);
+  const { ordered, route } = areaRoute(area, planner);
   const current = position || lastKnownLocation || manualPosition;
   const trailMeta = useMemo(() => getTrailMeta(activeTrailGeometry), [activeTrailGeometry]);
   const snappedRoute = useMemo(() => planner.area === 'graftonSpeck' ? route.map(w => snapWaypointToTrail(w, trailMeta)) : route, [route, trailMeta, planner.area]);
   const snappedCurrent = useMemo(() => nearestTrailPoint(current, trailMeta), [current, trailMeta]);
+  const weather = useMemo(() => estimateWeather(current, weatherInput), [current, weatherInput]);
   const sunInfo = useMemo(() => calcSunTimes(new Date(), current.lat, current.lon), [current.lat, current.lon]);
-  const destination = useMemo(() => {
-    if (planner.destinationMode === 'coords') return parseCoord(planner.coordText) ? { ...parseCoord(planner.coordText), name: planner.destinationName || 'Custom coordinate destination', type: 'Custom' } : null;
-    if (planner.destinationMode === 'map') return area.waypoints.find(w => w.id === planner.selectedMapId) || route.at(-1);
-    if (planner.destinationMode === 'name') {
-      const match = area.waypoints.find(w => w.name.toLowerCase().includes(planner.destinationName.toLowerCase()));
-      return match || (planner.destinationName ? { name: planner.destinationName, lat: current.lat, lon: current.lon, type: 'Named note' } : route.at(-1));
-    }
-    return area.waypoints.find(w => w.id === planner.destinationId) || route.at(-1);
-  }, [planner, area.waypoints, route, current]);
-
-  const navigation = useMemo(() => {
-    const distances = snappedRoute.map(w => ({ ...w, distance: haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }) ?? Infinity }));
-    const nearest = distances.reduce((best, item, idx) => item.distance < best.distance ? { ...item, idx } : best, { distance: Infinity, idx: 0 });
-    const next = distances.find((_, idx) => idx > nearest.idx) || distances.at(-1);
-    const last = [...distances].reverse().find((_, rIdx) => (distances.length - 1 - rIdx) < nearest.idx) || distances[0];
-    const toDestination = haversineMiles(current, destination);
-    const routeMiles = trailMeta.totalMiles || routeDistance(snappedRoute);
-    const completedByMile = Math.max(0, ((nearest.mile || route[0]?.mile || 0) - (route[0]?.mile || 0)));
-    const routeTrailMiles = Math.max(0.01, trailMeta.totalMiles || Math.abs((snappedRoute.at(-1)?.mile || 0) - (snappedRoute[0]?.mile || 0)));
-    const progress = Math.min(100, Math.max(0, (completedByMile / routeTrailMiles) * 100));
-    return { nearest, next, last, toDestination, routeMiles, progress, snappedCurrent };
-  }, [snappedRoute, current, destination]);
-
-  useEffect(() => {
-    if (hike.active && destination && navigation.toDestination != null && navigation.toDestination <= Number(settings.autoEndRadiusMiles)) {
-      setHike(h => ({ ...h, active: false, endedAt: new Date().toISOString(), completed: true }));
-      setGeoStatus(`Destination reached within ${settings.autoEndRadiusMiles} mi. Hike auto-ended.`);
-    }
-  }, [navigation.toDestination, destination, hike.active, settings.autoEndRadiusMiles, setHike]);
+  const destination = useMemo(() => planner.destinationMode === 'coords' && parseCoord(planner.coordText) ? { ...parseCoord(planner.coordText), name: planner.destinationName || 'Custom coordinate', type: 'Custom' } : area.waypoints.find(w => w.id === (planner.destinationMode === 'map' ? planner.selectedMapId : planner.destinationId)) || route.at(-1), [planner, area.waypoints, route]);
+  const navigation = useMemo(() => { const distances = snappedRoute.map(w => ({ ...w, distance: haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }) ?? Infinity })); const nearest = distances.reduce((best, item, idx) => item.distance < best.distance ? { ...item, idx } : best, { distance: Infinity, idx: 0 }); const next = distances.find((_, idx) => idx > nearest.idx) || distances.at(-1); const toDestination = haversineMiles(current, destination); const routeMiles = trailMeta.totalMiles || routeDistance(snappedRoute); const progress = Math.min(100, Math.max(0, (((nearest.mile || route[0]?.mile || 0) - (route[0]?.mile || 0)) / Math.max(0.01, trailMeta.totalMiles || Math.abs((snappedRoute.at(-1)?.mile || 0) - (snappedRoute[0]?.mile || 0)))) * 100)); return { nearest, next, toDestination, routeMiles, progress, snappedCurrent, calories: estimateCalories({ miles: routeMiles, profile: userProfile, weather, paceMph: settings.paceMph }) }; }, [snappedRoute, current, destination, route, trailMeta, userProfile, weather, settings.paceMph]);
+  const stats = useMemo(() => summarizeStats(hikeLog, activeRoutePlanId), [hikeLog, activeRoutePlanId]);
 
   const setPlannerPatch = (patch) => setPlanner(prev => ({ ...prev, ...patch }));
-  const setSettingsPatch = (patch) => setSettings(prev => ({ ...prev, ...patch }));
-
-  const getLocation = () => {
-    if (!navigator.geolocation) return setGeoStatus('Browser geolocation is not available on this device.');
-    setGeoStatus('Starting high-accuracy live GPS watch…');
-    if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId);
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const live = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, label: 'Live phone GPS', timestamp: new Date(pos.timestamp).toLocaleString() };
-        setPosition(live);
-        setLastKnownLocation(live);
-        setGeoStatus(`Live GPS tracking · ±${Math.round(pos.coords.accuracy || 0)}m · ${live.timestamp}`);
-      },
-      (err) => setGeoStatus(`Location unavailable: ${err.message}`),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }
-    );
-    setGeoWatchId(watchId);
-  };
-  const stopLiveTracking = () => {
-    if (geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(geoWatchId);
-    setGeoWatchId(null);
-    setGeoStatus('Live GPS watch stopped. Last known location remains available.');
-  };
-  const raiseSOS = async () => {
-    const marker = { ...current, createdAt: new Date().toLocaleString(), status: 'HELP REQUESTED' };
-    setSosMarker(marker);
-    const text = buildEmergencyText({ settings, current, snappedCurrent, destination, sosMarker: marker });
-    try {
-      if (navigator.share) await navigator.share({ title: 'Map-Pi SOS marker', text });
-      else if (navigator.clipboard) await navigator.clipboard.writeText(text);
-      setEmergencyStatus('SOS marker saved locally and emergency text shared/copied. Shared map visibility still needs backend sync.');
-    } catch (error) {
-      setEmergencyStatus(`SOS marker saved locally. Share/copy skipped: ${error.message}`);
-    }
-  };
-  const clearSOS = () => { setSosMarker(null); setEmergencyStatus('SOS marker cleared locally.'); };
-  const useManualCoords = () => {
-    const parsed = parseCoord(planner.coordText);
-    if (!parsed) return setGeoStatus('Manual coordinate format should be: 34.6274, -84.1933');
-    setManualPosition({ ...parsed, label: planner.destinationName || 'Manual coordinate' });
-    setPosition(null);
-    setGeoStatus('Manual coordinates set as current position.');
-  };
-  const startHike = () => setHike(h => ({ ...h, active: true, startedAt: new Date().toISOString(), endedAt: null, completed: false }));
-  const endHike = () => setHike(h => ({ ...h, active: false, endedAt: new Date().toISOString(), completed: false }));
-  const resetHike = () => setHike(h => ({ ...h, active: false, startedAt: null, endedAt: null, completed: false }));
-  const handlePlantPhoto = (event) => {
-    const file = event.target.files?.[0];
-    if (file) setPlantPhoto({ name: file.name, size: `${Math.round(file.size / 1024)} KB`, type: file.type || 'photo' });
-  };
-  const queueSupplyRequest = () => {
-    if (!queuedRequest.trim()) return;
-    setHike(h => ({ ...h, requestQueue: [...(h.requestQueue || []), { id: Date.now(), text: queuedRequest.trim(), destination: destination?.name || 'Current route', createdAt: new Date().toLocaleString(), status: 'Queued offline' }] }));
-    setQueuedRequest('');
-  };
+  const savePlan = (asNew = false) => { const existing = routePlans.find(r => r.id === activeRoutePlanId); const plan = makeRoutePlan({ planner, area, route: snappedRoute, navigation, visibility: planner.visibility || existing?.visibility || 'private' }); if (!asNew && existing) { plan.id = existing.id; plan.createdAt = existing.createdAt; setRoutePlans(prev => prev.map(r => r.id === existing.id ? plan : r)); setActiveRoutePlanId(existing.id); flashSaved('Route updated and saved on this device.'); } else { setRoutePlans(prev => [plan, ...prev]); setActiveRoutePlanId(plan.id); flashSaved('New route saved on this device.'); } };
+  const loadPlan = (plan) => { setPlanner(planToPlanner(plan)); setActiveRoutePlanId(plan.id); setActiveTab('plan'); flashSaved(`Loaded ${plan.name}.`); };
+  const saveProfile = () => flashSaved('Profile, settings, and weather saved on this device.');
+  const refreshWeather = () => { setWeatherInput(w => ({ ...w, source: position ? 'live GPS + manual conditions' : 'last-known/manual conditions', updatedAt: new Date().toISOString() })); flashSaved('Weather refreshed from last-known/manual conditions.'); };
+  const addMarker = (point, name = 'Saved marker') => { const marker = { id: uid('marker'), name, category: 'Scout later', visibility: 'private', lat: Number(point.displayLat || point.lat), lon: Number(point.displayLon || point.lon), note: '', createdAt: new Date().toISOString() }; setSavedMarkers(prev => [marker, ...prev]); flashSaved('Marker saved on this device.'); };
+  const getLocation = () => { if (!navigator.geolocation) return setGeoStatus('Geolocation is not available.'); setGeoStatus('Starting live GPS watch…'); if (geoWatchId != null) navigator.geolocation.clearWatch(geoWatchId); const watchId = navigator.geolocation.watchPosition(pos => { const live = { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, label: 'Live phone GPS', timestamp: new Date(pos.timestamp).toLocaleString() }; setPosition(live); setLastKnownLocation(live); setGeoStatus(`Live GPS · ±${Math.round(pos.coords.accuracy || 0)}m · ${live.timestamp}`); setWeatherInput(w => ({ ...w, source: 'live GPS + manual conditions', updatedAt: new Date().toISOString() })); }, err => setGeoStatus(`Location unavailable: ${err.message}`), { enableHighAccuracy: true, timeout: 15000, maximumAge: 2000 }); setGeoWatchId(watchId); };
+  const stopLiveTracking = () => { if (geoWatchId != null && navigator.geolocation) navigator.geolocation.clearWatch(geoWatchId); setGeoWatchId(null); setGeoStatus('Live GPS stopped. Last known location stays saved.'); };
+  const startHike = () => { setHike(h => ({ ...h, active: true, startedAt: new Date().toISOString(), endedAt: null, completed: false, routeId: activeRoutePlanId, routeName: planner.planName || area.label })); setFieldKitStamp(new Date().toISOString()); setActiveTab('hike'); flashSaved('Hike initiated. Field view is live.'); };
+  const endHike = () => { const endedAt = new Date().toISOString(); const miles = Number((navigation.progress > 0 ? navigation.routeMiles * (navigation.progress / 100) : navigation.routeMiles).toFixed(2)); const calories = estimateCalories({ miles, profile: userProfile, weather, paceMph: settings.paceMph }); setHike(h => ({ ...h, active: false, endedAt, completed: true })); setHikeLog(prev => [{ id: uid('hike'), routeId: activeRoutePlanId, routeName: planner.planName || area.label, miles, calories, startedAt: hike.startedAt || endedAt, endedAt, completed: true, weather, createdAt: endedAt }, ...prev]); setActiveTab('review'); flashSaved('Hike ended and logged.'); };
   const exportActiveGpx = () => downloadText('map-pi-active-route.gpx', geoJsonToGpx(activeTrailGeometry, area.label));
-  const exportEmergencyJson = () => downloadText('map-pi-emergency-state.json', JSON.stringify({ planner, hike, current, lastKnownLocation, sosMarker, destination, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
-  const importGpxFile = async (file) => {
-    if (!file) return;
-    const text = await file.text();
-    const geo = gpxTextToGeoJson(text, file.name.replace(/\.gpx$/i, ''));
-    setImportedTrailGeometry(geo);
-    setTrailGeometryStatus(`Imported GPX route: ${geo.features.length} segment(s), ${getTrailPoints(geo).length} points.`);
-  };
-  const clearImportedRoute = () => { setImportedTrailGeometry(null); setTrailGeometryStatus('Using bundled OSM Route 26 / Speck Pond geometry.'); };
+  const importGpxFile = async (file) => { if (!file) return; const geo = gpxTextToGeoJson(await file.text(), file.name.replace(/\.gpx$/i, '')); setImportedTrailGeometry(geo); flashSaved('GPX imported for this device.'); };
+  const exportEmergencyJson = () => downloadText('map-pi-emergency-state.json', JSON.stringify({ planner, routePlans, savedMarkers, hike, current, destination, userProfile, weather, stats, exportedAt: new Date().toISOString() }, null, 2), 'application/json');
+  const clearData = () => { localStorage.clear(); flashSaved('Local device data cleared. Refresh to reset fully.'); };
+  const tabs = [['plan', 'Plan', Map], ['directions', 'Guide', Route], ['prep', 'Prep', Backpack], ['hike', 'Hike', Navigation], ['review', 'Review', Activity], ['profile', 'Profile', Settings]];
 
-  const tabs = [
-    ['dashboard', 'Dashboard', Activity], ['planner', 'Planner', Map], ['navigate', 'Navigate', Navigation], ['waypoints', 'Waypoints', ListChecks], ['drops', 'Drops', Users], ['plant', 'Plant ID', Leaf], ['field', 'Field Kit', Smartphone], ['settings', 'Settings', Settings],
-  ];
-
-  return <main className={`app-shell theme-${settings.theme} ${settings.fieldMode ? 'field-mode' : ''}`}>
-    <header className="app-header glass">
-      <div><p className="eyebrow"><MapPin size={16}/> Map-Pi Appalachian Trail System</p><h1>Trail Buddy</h1><p>{area.label} · {planner.direction} · {hike.active ? 'Hike active' : hike.completed ? 'Destination reached' : 'Planning mode'}</p></div>
-      <div className="status-pill"><Wifi size={16}/> Tailscale ready</div>
-    </header>
-
-    <nav className="tab-bar glass">{tabs.map(([id, label, Icon]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}><Icon size={17}/><span>{label}</span></button>)}</nav>
-
-    {activeTab === 'dashboard' && <Dashboard settings={settings} area={area} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} setActiveTab={setActiveTab} trailGeometry={activeTrailGeometry} trailGeometryStatus={trailGeometryStatus} sosMarker={sosMarker} sunInfo={sunInfo} />}
-    {activeTab === 'planner' && <Planner area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} useManualCoords={useManualCoords} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} />}
-    {activeTab === 'navigate' && <Navigate settings={settings} route={snappedRoute} hike={hike} current={current} destination={destination} navigation={navigation} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} geoWatchId={geoWatchId} startHike={startHike} endHike={endHike} resetHike={resetHike} setManualPosition={setManualPosition} lastKnownLocation={lastKnownLocation} sunInfo={sunInfo} raiseSOS={raiseSOS} clearSOS={clearSOS} sosMarker={sosMarker} emergencyStatus={emergencyStatus} trailGeometry={activeTrailGeometry} />}
-    {activeTab === 'waypoints' && <Waypoints settings={settings} route={snappedRoute} current={current} navigation={navigation} setPlannerPatch={setPlannerPatch} setManualPosition={setManualPosition} setActiveTab={setActiveTab} />}
-    {activeTab === 'drops' && <Drops drops={defaultDrops} queuedRequest={queuedRequest} setQueuedRequest={setQueuedRequest} queueSupplyRequest={queueSupplyRequest} requestQueue={hike.requestQueue || []} destination={destination} />}
-    {activeTab === 'plant' && <Plant plantPhoto={plantPhoto} handlePlantPhoto={handlePlantPhoto} />}
-    {activeTab === 'field' && <FieldKit pwaStatus={pwaStatus} settings={settings} setSettingsPatch={setSettingsPatch} trailGeometry={activeTrailGeometry} importedTrailGeometry={importedTrailGeometry} importGpxFile={importGpxFile} clearImportedRoute={clearImportedRoute} exportActiveGpx={exportActiveGpx} exportEmergencyJson={exportEmergencyJson} current={current} destination={destination} />}
-    {activeTab === 'settings' && <SettingsPage settings={settings} setSettingsPatch={setSettingsPatch} planner={planner} setPlannerPatch={setPlannerPatch} hike={hike} setHike={setHike} />}
-
-    <footer>Installable PWA shell, GPX tools, terrain map, and local safety state. Shared live/SOS sync needs backend credentials.</footer>
+  return <main className={`app-shell flow-shell theme-${settings.theme} ${settings.fieldMode ? 'field-mode' : ''}`}>
+    <header className="app-header glass"><div><p className="eyebrow"><MapPin size={16}/> Map-Pi controlled hike flow</p><h1>Trail Buddy</h1><p>{planner.planName || area.label} · {hike.active ? 'Hike active' : 'Plan ready'}</p></div><div className={`status-pill risk-${weather.risk}`}><Wifi size={16}/> {weather.summary}</div></header>
+    {saveStatus && <div className="save-toast"><Save size={16}/> {saveStatus}</div>}
+    <nav className="tab-bar flow-tabs glass">{tabs.map(([id, label, Icon]) => <button key={id} className={activeTab === id ? 'active' : ''} onClick={() => setActiveTab(id)}><Icon size={17}/><span>{label}</span></button>)}</nav>
+    {activeTab === 'plan' && <PlanFlow area={area} ordered={ordered} route={snappedRoute} planner={planner} setPlannerPatch={setPlannerPatch} destination={destination} navigation={navigation} trailGeometry={activeTrailGeometry} settings={settings} setSettings={setSettings} markers={savedMarkers} savePlan={savePlan} loadPlan={loadPlan} routePlans={routePlans} addMarker={addMarker} setActiveTab={setActiveTab} />}
+    {activeTab === 'directions' && <DirectionFlow settings={settings} setActiveTab={setActiveTab} route={snappedRoute} planner={planner} weather={weather} navigation={navigation} />}
+    {activeTab === 'prep' && <PrepFlow pwaStatus={pwaStatus} route={snappedRoute} planner={planner} destination={destination} weather={weather} stats={stats} markers={savedMarkers} fieldKitStamp={fieldKitStamp} setFieldKitStamp={setFieldKitStamp} importGpxFile={importGpxFile} exportActiveGpx={exportActiveGpx} exportEmergencyJson={exportEmergencyJson} setActiveTab={setActiveTab} savePlan={savePlan} startHike={startHike} trailGeometryStatus={trailGeometryStatus} />}
+    {activeTab === 'hike' && <HikeFlow route={snappedRoute} current={current} destination={destination} navigation={navigation} settings={settings} trailGeometry={activeTrailGeometry} markers={savedMarkers} weather={weather} hike={hike} geoStatus={geoStatus} getLocation={getLocation} stopLiveTracking={stopLiveTracking} startHike={startHike} endHike={endHike} setManualPosition={setManualPosition} addMarker={addMarker} sosMarker={sosMarker} setSosMarker={setSosMarker} />}
+    {activeTab === 'review' && <ReviewFlow stats={stats} hikeLog={hikeLog} setHikeLog={setHikeLog} routePlans={routePlans} markers={savedMarkers} loadPlan={loadPlan} settings={settings} />}
+    {activeTab === 'profile' && <ProfileFlow settings={settings} setSettings={setSettings} profile={userProfile} setProfile={setUserProfile} weatherInput={weatherInput} setWeatherInput={setWeatherInput} weather={weather} refreshWeather={refreshWeather} saveProfile={saveProfile} clearData={clearData} />}
+    <footer>Local-first. Public routes, markers, live weather, and sharing need backend/API approval later.</footer>
   </main>;
 }
 
-function Dashboard({ settings, area, route, hike, current, destination, navigation, setActiveTab, trailGeometry, trailGeometryStatus, sosMarker, sunInfo }) {
-  return <section className="page-grid">
-    <Metric icon={Flag} label="Selected route" value={`${route[0]?.name} → ${route.at(-1)?.name}`} sub={area.description} />
-    <Metric icon={Navigation} label="To destination" value={fmtMiles(navigation.toDestination, settings.units)} sub={destination?.name || 'No destination'} />
-    <Metric icon={MapPin} label="Next waypoint" value={navigation.next?.name || '—'} sub={fmtMiles(navigation.next?.distance, settings.units)} />
-    <Metric icon={Home} label="Last waypoint" value={navigation.last?.name || '—'} sub={fmtMiles(navigation.last?.distance, settings.units)} />
-    <Metric icon={ThermometerSun} label="Next light change" value={sunInfo.next ? sunInfo.next.label : '—'} sub={sunInfo.next ? `${sunInfo.next.time.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${formatDuration(sunInfo.next.time - new Date())}` : 'Sun data unavailable'} />
-    <section className="trail-map glass wide">
-      <div className="section-title"><Map/> Route overview</div>
-      <RouteMap route={route} current={current} destination={destination} onPick={(wp) => {}} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} />
-      <div className="source-note">{trailGeometryStatus} Source: OpenStreetMap contributors (ODbL). GPX copy: <code>/trails/grafton-speck-osm.gpx</code></div>
-      <div className="progress"><span style={{ width: `${navigation.progress}%` }} /></div>
-    </section>
-    <section className="panel glass">
-      <div className="section-title"><Compass/> Quick actions</div>
-      <button className="primary" onClick={() => setActiveTab('planner')}>Plan destination</button>
-      <button className="secondary" onClick={() => setActiveTab('navigate')}>Open navigation</button>
-      <p className="muted">Hike state: {hike.active ? `Started ${new Date(hike.startedAt).toLocaleString()}` : hike.endedAt ? `Ended ${new Date(hike.endedAt).toLocaleString()}` : 'Not started'}</p>
-    </section>
-  </section>;
+function PlanFlow({ area, ordered, route, planner, setPlannerPatch, destination, navigation, trailGeometry, settings, setSettings, markers, savePlan, loadPlan, routePlans, addMarker, setActiveTab }) {
+  return <section className="flow-grid"><section className="panel glass flow-card"><div className="section-title"><Map/> 1 · Set route</div><label>Plan name<input value={planner.planName || ''} onChange={e => setPlannerPatch({ planName: e.target.value })} /></label><div className="compact-grid"><label>Area<select value={planner.area} onChange={e => setPlannerPatch({ area: e.target.value, startId: AREAS[e.target.value].waypoints[0].id, endId: AREAS[e.target.value].waypoints.at(-1).id, destinationId: AREAS[e.target.value].waypoints.at(-1).id })}>{Object.entries(AREAS).map(([id, a]) => <option key={id} value={id}>{a.label}</option>)}</select></label><label>Direction<select value={planner.direction} onChange={e => setPlannerPatch({ direction: e.target.value })}><option value="northbound">Northbound</option><option value="southbound">Southbound</option></select></label><label>Start<select value={planner.startId} onChange={e => setPlannerPatch({ startId: e.target.value })}>{ordered.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label><label>End<select value={planner.endId} onChange={e => setPlannerPatch({ endId: e.target.value, destinationId: e.target.value })}>{ordered.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label></div><textarea value={planner.notes || ''} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Parking, water, bailouts, gear notes…" /><div className="button-row"><button className="primary" onClick={() => savePlan(false)}><Save size={16}/> Save route</button><button className="secondary" onClick={() => savePlan(true)}>Save copy</button><button className="secondary" onClick={() => setActiveTab('prep')}>Prep hike →</button></div></section><section className="panel glass flow-card"><div className="section-title"><ListChecks/> Checkpoints</div><div className="chip-row">{route.map((w, idx) => <button key={w.id} onClick={() => setPlannerPatch({ destinationId: w.id })}>{idx + 1}. {w.name}</button>)}</div><div className="mini-stats"><span>{route.length} checkpoints</span><span>{fmtMiles(navigation.routeMiles)}</span><span>{navigation.calories} cal est.</span></div><HelpTip enabled={settings.helpEnabled}>Waypoints become the visible route sequence. Save extra places as markers so later backend sync can choose private/public visibility.</HelpTip><p className="muted">Waypoints are the route checkpoints. Custom pins go on the map as markers.</p></section><section className="trail-map glass flow-map"><div className="section-title"><MapPin/> Map + route pins</div><MapLayerControls settings={settings} setSettings={setSettings} /><HelpTip enabled={settings.helpEnabled}>Tap map pins for details. Use eye toggles to hide clutter when you only need the next decision point.</HelpTip><RouteMap area={area} route={route} current={null} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map', destinationId: wp.id })} trailGeometry={trailGeometry} settings={settings} markers={markers} /><div className="button-row"><button onClick={() => destination && addMarker(destination, destination.name)}>Save destination marker</button></div></section><section className="panel glass flow-card"><div className="section-title"><GitBranch/> Saved routes</div>{routePlans.slice(0, 4).map(plan => <article className="compact-row" key={plan.id}><span><strong>{plan.name}</strong><small>{plan.estimatedMiles} mi · {plan.waypointCount} stops</small></span><button onClick={() => loadPlan(plan)}>Load</button></article>)}{!routePlans.length && <p className="muted">Save this route to start your route list.</p>}</section></section>;
 }
-
-function Planner({ area, ordered, route, planner, setPlannerPatch, destination, navigation, useManualCoords, trailGeometry, sosMarker }) {
-  return <section className="page-grid two-col">
-    <section className="panel glass">
-      <div className="section-title"><Map/> Route planner</div>
-      <label>Selected area<select value={planner.area} onChange={e => setPlannerPatch({ area: e.target.value, startId: AREAS[e.target.value].waypoints[0].id, endId: AREAS[e.target.value].waypoints.at(-1).id, destinationId: AREAS[e.target.value].waypoints.at(-1).id, selectedMapId: AREAS[e.target.value].waypoints.at(-1).id })}>{Object.entries(AREAS).map(([id, a]) => <option key={id} value={id}>{a.label}</option>)}</select></label>
-      <label>Direction<select value={planner.direction} onChange={e => setPlannerPatch({ direction: e.target.value })}><option value="northbound">Northbound</option><option value="southbound">Southbound</option></select></label>
-      <label>Start waypoint<select value={planner.startId} onChange={e => setPlannerPatch({ startId: e.target.value })}>{ordered.map(w => <option key={w.id} value={w.id}>{w.mile} · {w.name}</option>)}</select></label>
-      <label>End waypoint<select value={planner.endId} onChange={e => setPlannerPatch({ endId: e.target.value, destinationId: e.target.value })}>{ordered.map(w => <option key={w.id} value={w.id}>{w.mile} · {w.name}</option>)}</select></label>
-      <div className="mini-stats"><span>Route points: {route.length}</span><span>Trail miles: {Math.abs((route.at(-1)?.mile || 0) - (route[0]?.mile || 0)).toFixed(1)}</span><span>GPS estimate: {fmtMiles(navigation.routeMiles)}</span></div>
-    </section>
-    <section className="panel glass">
-      <div className="section-title"><Flag/> Destination input</div>
-      <label>Destination mode<select value={planner.destinationMode} onChange={e => setPlannerPatch({ destinationMode: e.target.value })}><option value="dropdown">Dropdown waypoint</option><option value="coords">Coordinates</option><option value="name">Name search/note</option><option value="map">Choice on map</option></select></label>
-      {planner.destinationMode === 'dropdown' && <label>Destination<select value={planner.destinationId} onChange={e => setPlannerPatch({ destinationId: e.target.value })}>{area.waypoints.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}</select></label>}
-      {(planner.destinationMode === 'coords' || planner.destinationMode === 'name') && <><label>Name<input value={planner.destinationName} onChange={e => setPlannerPatch({ destinationName: e.target.value })} placeholder="Camp, road, water source…" /></label>{planner.destinationMode === 'coords' && <label>Coordinates<input value={planner.coordText} onChange={e => setPlannerPatch({ coordText: e.target.value })} placeholder="34.6274, -84.1933" /></label>}<button className="secondary" onClick={useManualCoords}>Use coordinates as current position</button></>}
-      <div className="chosen-destination"><strong>Chosen:</strong> {destination?.name || 'Invalid coordinate'} · {fmtMiles(navigation.toDestination)}</div>
-    </section>
-    <section className="trail-map glass full-row"><div className="section-title"><MapPin/> Choose on map</div><RouteMap route={route} current={null} destination={destination} onPick={(wp) => setPlannerPatch({ selectedMapId: wp.id, destinationMode: 'map' })} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} settings={{ mapLayer: 'terrain', fitMode: 'trail' }} /></section>
-  </section>;
-}
-
-function Navigate({ settings, route, hike, current, destination, navigation, geoStatus, getLocation, stopLiveTracking, geoWatchId, startHike, endHike, resetHike, setManualPosition, lastKnownLocation, sunInfo, raiseSOS, clearSOS, sosMarker, emergencyStatus, trailGeometry }) {
-  const emergencyText = buildEmergencyText({ settings, current, snappedCurrent: navigation.snappedCurrent, destination, sosMarker });
-  return <section className="page-grid">
-    <Metric icon={LocateFixed} label="Current position" value={current.label || 'Manual/GPS'} sub={`${Number(current.lat).toFixed(4)}, ${Number(current.lon).toFixed(4)}`} />
-    <Metric icon={Navigation} label="Distance to next" value={fmtMiles(navigation.next?.distance, settings.units)} sub={navigation.next?.name} />
-    <Metric icon={Home} label="Distance to last" value={fmtMiles(navigation.last?.distance, settings.units)} sub={navigation.last?.name} />
-    <Metric icon={Flag} label="Distance to destination" value={fmtMiles(navigation.toDestination, settings.units)} sub={destination?.name} />
-    <Metric icon={ThermometerSun} label="Sunrise / sunset" value={sunInfo.sunrise ? sunInfo.sunrise.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—'} sub={sunInfo.sunset ? `Sunset ${sunInfo.sunset.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · next ${sunInfo.next?.label || '—'} in ${sunInfo.next ? formatDuration(sunInfo.next.time - new Date()) : '—'}` : 'Sun data unavailable'} />
-    <section className="panel glass wide"><div className="section-title"><Activity/> Hike controls</div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}><LocateFixed size={16}/> {geoWatchId == null ? 'Start live GPS' : 'Restart live GPS'}</button><button className="secondary" onClick={stopLiveTracking} disabled={geoWatchId == null}>Stop live GPS</button><button className="primary" onClick={startHike} disabled={hike.active}><Play size={16}/> Start hike</button><button className="danger" onClick={endHike} disabled={!hike.active}><Square size={16}/> End hike</button><button className="secondary" onClick={resetHike}><RotateCcw size={16}/> Reset</button></div></section>
-    <section className="panel glass"><div className="section-title"><ListChecks/> Route queue</div>{route.map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · route snap {w.snap ? `${w.snap.distance.toFixed(2)} mi` : '—'}</span></button>)}</section>
-    <section className="trail-map glass wide"><div className="section-title"><Map/> Live route map</div><RouteMap route={route} current={current} destination={destination} onPick={(wp) => setManualPosition({ lat: wp.displayLat || wp.lat, lon: wp.displayLon || wp.lon, label: wp.name })} trailGeometry={activeTrailGeometry} sosMarker={sosMarker} navigation={navigation} settings={settings} /></section><section className="panel glass wide emergency-panel"><div className="section-title"><ShieldAlert/> SOS / last known location</div><p className="muted">Last known: {lastKnownLocation ? `${lastKnownLocation.lat.toFixed(5)}, ${lastKnownLocation.lon.toFixed(5)} · ${lastKnownLocation.timestamp}` : 'No GPS fix yet.'}</p><p className="muted">{emergencyStatus}</p><div className="button-row"><button className="danger" onClick={raiseSOS}><ShieldAlert size={16}/> Drop SOS marker / share text</button><button className="secondary" onClick={clearSOS} disabled={!sosMarker}>Clear SOS marker</button></div><textarea readOnly value={emergencyText} /></section>
-  </section>;
-}
-
-function Waypoints({ settings, route, current, navigation, setPlannerPatch, setManualPosition, setActiveTab }) {
-  return <section className="panel glass"><div className="section-title"><ListChecks/> Waypoints</div><div className="waypoint-list">{route.map((w) => <article key={w.id} className={navigation.nearest?.id === w.id ? 'nearest waypoint-card' : 'waypoint-card'}><div><strong>{w.type}: {w.name}</strong><span>Mile {w.mile} · {w.detail}</span><small>From current: {fmtMiles(haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }), settings.units)}</small></div><div className="card-actions"><button onClick={() => { setPlannerPatch({ destinationMode: 'dropdown', destinationId: w.id }); setActiveTab('navigate'); }}>Navigate</button><button onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}>Set current</button></div></article>)}</div></section>;
-}
-
-function Drops({ drops, queuedRequest, setQueuedRequest, queueSupplyRequest, requestQueue, destination }) {
-  return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Users/> Trail-hand supply drops</div><p className="muted">Requests queue offline and can sync to Supabase/SMS later when service returns.</p><div className="request-row"><input value={queuedRequest} onChange={(e) => setQueuedRequest(e.target.value)} placeholder={`Request supplies near ${destination?.name || 'destination'}…`} /><button onClick={queueSupplyRequest}><Send size={16}/> Queue</button></div>{drops.map(drop => <article className="drop-card" key={drop.id}><strong>{drop.name}</strong><span>Mile {drop.mile} · {drop.status}</span><p>{drop.supplies}</p><small>{drop.eta}</small></article>)}</section><section className="panel glass"><div className="section-title"><Backpack/> Queued requests</div>{requestQueue.length ? requestQueue.map(r => <article className="drop-card" key={r.id}><strong>{r.text}</strong><span>{r.destination}</span><small>{r.status} · {r.createdAt}</small></article>) : <p className="muted">No requests queued yet.</p>}</section></section>;
-}
-
-function Plant({ plantPhoto, handlePlantPhoto }) {
-  return <section className="page-grid two-col"><section className="panel glass plant-lab"><div className="section-title"><Camera/> Plant photo triage</div><p className="muted">Upload from the phone camera over HTTPS/Tailscale or hotspot. Bluetooth file transfer can be a fallback later.</p><label className="upload-box"><Upload/><span>{plantPhoto ? `${plantPhoto.name} · ${plantPhoto.size}` : 'Choose a plant photo'}</span><input type="file" accept="image/*" capture="environment" onChange={handlePlantPhoto} /></label><div className="safety-callout"><AlertTriangle/> Never eat from AI output alone. Map-Pi will return confidence, lookalikes, poisonous warnings, and “do not consume” by default when uncertain.</div></section><section className="panel glass"><div className="section-title"><Database/> Free data strategy</div><ul className="info-list">{plantSources.map(source => <li key={source}>{source}</li>)}</ul></section></section>;
-}
-
-
-function FieldKit({ pwaStatus, settings, setSettingsPatch, trailGeometry, importedTrailGeometry, importGpxFile, clearImportedRoute, exportActiveGpx, exportEmergencyJson, current, destination }) {
-  const pointCount = getTrailPoints(trailGeometry).length;
-  const backendItems = [
-    ['hike_sessions', 'active hike state, started/ended timestamps, selected route'],
-    ['last_known_locations', 'latest GPS fix by user/session, accuracy, battery optional'],
-    ['sos_markers', 'public/help marker with status and resolution notes'],
-    ['route_notes', 'hazards, water, camp notes, visibility options'],
-  ];
-  return <section className="page-grid two-col">
-    <section className="panel glass"><div className="section-title"><Smartphone/> Offline / install</div><p className="muted">{pwaStatus}</p><p className="muted">Use your browser menu → Add to Home Screen. The app shell and bundled Route 26/Speck Pond files cache for rough offline use; live map tiles still depend on tile availability/cache.</p><div className="mini-stats"><span>Field mode: {settings.fieldMode ? 'on' : 'off'}</span><span>Map layer: {settings.mapLayer}</span><span>Trail points: {pointCount}</span></div><label className="checkbox-row"><input type="checkbox" checked={!!settings.fieldMode} onChange={e => setSettingsPatch({ fieldMode: e.target.checked })} /> Field mode: larger controls / low clutter</label></section>
-    <section className="panel glass"><div className="section-title"><GitBranch/> GPX route tools</div><p className="muted">Import a GPX to temporarily replace the bundled trail geometry. Export keeps the active geometry portable for Garmin/CalTopo/backup use.</p><label className="upload-box compact"><Upload/><span>Import GPX route</span><input type="file" accept=".gpx,application/gpx+xml,text/xml" onChange={e => importGpxFile(e.target.files?.[0])} /></label><div className="button-row"><button className="primary" onClick={exportActiveGpx}><Download size={16}/> Export active GPX</button><button className="secondary" onClick={clearImportedRoute} disabled={!importedTrailGeometry}>Use bundled route</button></div><p className="muted">Active source: {importedTrailGeometry ? importedTrailGeometry.name || 'Imported GPX' : 'Bundled OSM Route 26/Speck Pond'}</p></section>
-    <section className="panel glass"><div className="section-title"><ShieldAlert/> Emergency packet</div><p className="muted">Download a no-network JSON snapshot of current state for handoff/debugging.</p><div className="button-row"><button className="danger" onClick={exportEmergencyJson}><Download size={16}/> Export emergency/state JSON</button></div><p className="muted">Current: {current ? `${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}` : 'unknown'} · Destination: {destination?.name || 'unknown'}</p></section>
-    <section className="panel glass"><div className="section-title"><Database/> Supabase-ready schema</div><p className="muted">Not wired until you add credentials. These are the tables/functions needed for public/live behavior.</p>{backendItems.map(([name, desc]) => <article className="drop-card" key={name}><strong>{name}</strong><span>{desc}</span></article>)}<p className="muted">Use RLS: public read only for unresolved SOS markers; owner/session write for location updates; service role only in Edge Functions.</p></section>
-  </section>;
-}
-
-function SettingsPage({ settings, setSettingsPatch, planner, setPlannerPatch, hike, setHike }) {
-  return <section className="page-grid two-col"><section className="panel glass"><div className="section-title"><Settings/> Preferences</div><label>Hiker name<input value={settings.hikerName} onChange={e => setSettingsPatch({ hikerName: e.target.value })} /></label><label>Units<select value={settings.units} onChange={e => setSettingsPatch({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Expected pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => setSettingsPatch({ paceMph: Number(e.target.value) })} /></label><label>Auto-end radius miles<input type="number" step="0.01" value={settings.autoEndRadiusMiles} onChange={e => setSettingsPatch({ autoEndRadiusMiles: Number(e.target.value) })} /></label><label>Theme<select value={settings.theme} onChange={e => setSettingsPatch({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label><label>Map layer<select value={settings.mapLayer || 'terrain'} onChange={e => setSettingsPatch({ mapLayer: e.target.value })}><option value="terrain">Terrain / topo</option><option value="osm">Street map</option><option value="satellite">Satellite-ish Esri</option></select></label><label>Initial map fit<select value={settings.fitMode || 'trail'} onChange={e => setSettingsPatch({ fitMode: e.target.value })}><option value="trail">Trail only</option><option value="include-current">Include current location</option></select></label><label className="checkbox-row"><input type="checkbox" checked={!!settings.showCurrentWhenFar} onChange={e => setSettingsPatch({ showCurrentWhenFar: e.target.checked })} /> Show current marker even when far from route</label></section><section className="panel glass"><div className="section-title"><Save/> Local data</div><p className="muted">Settings, route, hike state, and queued requests persist in this browser with localStorage.</p><button className="danger" onClick={() => { localStorage.clear(); setHike({ active: false, startedAt: null, endedAt: null, completed: false, requestQueue: [] }); }}>Clear local app data</button><textarea value={planner.notes} onChange={e => setPlannerPatch({ notes: e.target.value })} placeholder="Trail notes, gear reminders, water reports…" /></section></section>;
-}
-
-function RouteMap({ route, current, destination, onPick, trailGeometry, sosMarker, navigation, settings = {} }) {
-  const mapRef = useRef(null);
-  const mapElRef = useRef(null);
-  const layerRef = useRef(null);
-  const tileRef = useRef(null);
-  const trailSegments = getTrailSegments(trailGeometry);
-  const trailPoints = getTrailPoints(trailGeometry);
-  const isCurrentNearTrail = !!navigation?.snappedCurrent && navigation.snappedCurrent.distance < 2;
-  const shouldShowCurrent = !!current && (settings.showCurrentWhenFar || isCurrentNearTrail || settings.fitMode === 'include-current');
-
+function MapLayerControls({ settings, setSettings }) { const visibility = { ...DEFAULT_VISIBILITY, ...(settings.mapFeatureVisibility || {}) }; const toggle = (key) => setSettings(prev => ({ ...prev, mapFeatureVisibility: { ...DEFAULT_VISIBILITY, ...(prev.mapFeatureVisibility || {}), [key]: visibility[key] === false } })); return <div className="layer-panel"><strong>Visible map icons</strong><div className="layer-grid">{Object.entries(FEATURE_DEFINITIONS).map(([key, def]) => <button type="button" key={key} className={visibility[key] === false ? 'off' : 'on'} onClick={() => toggle(key)}>{visibility[key] === false ? <EyeOff size={14}/> : <Eye size={14}/>} <span>{def.icon}</span> {def.label}</button>)}</div></div>; }
+function DirectionFlow({ settings, setActiveTab, route, planner, weather, navigation }) { return <section className="flow-grid"><section className="panel glass flow-card"><div className="section-title"><Route/> Direction sequence</div><HelpTip enabled={settings.helpEnabled}>This tab is the plain-language order of operations for a hiker. It stays separate from the map so field mode can be quick and readable.</HelpTip>{FLOW_DIRECTIONS.map((step, idx) => <article className="direction-step" key={step.title}><strong>{step.title}</strong><p>{step.text}</p>{idx === 0 && <small>Current plan: {planner.planName || 'unnamed route'} · {route[0]?.name} to {route.at(-1)?.name}</small>}{idx === 2 && <small>Current field estimate: {weather.summary}</small>}</article>)}<div className="button-row"><button className="primary" onClick={() => setActiveTab('prep')}>Go to prep</button><button className="secondary" onClick={() => setActiveTab('plan')}>Back to map</button></div></section><section className="panel glass flow-card"><div className="section-title"><ListChecks/> Route order</div>{route.map((w, idx) => <article className="compact-row" key={w.id}><span><strong>{idx + 1}. {w.name}</strong><small>{featureIcon(w)} {w.type} · mile {w.mile} · {w.detail}</small></span></article>)}<p className="muted">Estimated route: {fmtMiles(navigation.routeMiles, settings.units)} · {navigation.calories} cal. Map-Pi assists; still carry offline maps, compass, and emergency tools.</p></section></section>; }
+function PrepFlow({ pwaStatus, route, planner, destination, weather, stats, markers, fieldKitStamp, setFieldKitStamp, importGpxFile, exportActiveGpx, exportEmergencyJson, setActiveTab, savePlan, startHike, trailGeometryStatus }) { const updateDevice = () => { setFieldKitStamp(new Date().toISOString()); savePlan(false); }; return <section className="flow-grid"><section className="panel glass flow-card"><div className="section-title"><Smartphone/> 2 · Device prep</div><p className="muted">{pwaStatus}</p><div className="mini-stats"><span>Last update: {fieldKitStamp ? new Date(fieldKitStamp).toLocaleString() : 'never'}</span><span>{markers.length} markers</span><span>{route.length} checkpoints</span></div><button className="primary" onClick={updateDevice}>Save/update this device</button></section><section className="panel glass flow-card"><div className="section-title"><Flag/> Active hike recap</div><ul className="info-list"><li>{planner.planName}</li><li>{route[0]?.name} → {route.at(-1)?.name}</li><li>Destination: {destination?.name}</li><li>{weather.summary} · vitality {weather.vitality}%</li><li>{trailGeometryStatus}</li></ul></section><section className="panel glass flow-card"><div className="section-title"><GitBranch/> Import/export</div><label className="upload-box compact"><Upload/><span>Import GPX</span><input type="file" accept=".gpx,application/gpx+xml,text/xml" onChange={e => importGpxFile(e.target.files?.[0])} /></label><div className="button-row"><button onClick={exportActiveGpx}>Export GPX</button><button onClick={exportEmergencyJson}>Export emergency JSON</button></div></section><section className="panel glass flow-card"><div className="section-title"><Play/> Ready?</div><p className="muted">This is the launch pad: update the device, check the recap, then start the hike.</p><button className="primary big-action" onClick={startHike}>Initiate hike</button><button className="secondary" onClick={() => setActiveTab('plan')}>Back to plan</button><p className="muted">All-time: {fmtMiles(stats.totalMiles)} · {stats.hikes} hikes logged.</p></section></section>; }
+function HikeFlow({ route, current, destination, navigation, settings, trailGeometry, markers, weather, hike, geoStatus, getLocation, stopLiveTracking, startHike, endHike, setManualPosition, addMarker, sosMarker, setSosMarker }) { return <section className="flow-grid"><section className="trail-map glass flow-map"><div className="section-title"><Navigation/> 3 · Hike view</div><RouteMap area={null} route={route} current={current} destination={destination} onPick={(wp) => setManualPosition({ lat: wp.displayLat || wp.lat, lon: wp.displayLon || wp.lon, label: wp.name })} trailGeometry={trailGeometry} navigation={navigation} settings={settings} markers={markers} sosMarker={sosMarker} /></section><section className="panel glass flow-card"><div className="section-title"><Activity/> Controls</div><div className="mini-stats"><span>{fmtMiles(navigation.toDestination, settings.units)} to destination</span><span>{navigation.calories} cal est.</span><span>Vitality {weather.vitality}%</span></div><p className="muted">{geoStatus}</p><div className="button-row"><button className="primary" onClick={getLocation}>Start GPS</button><button onClick={stopLiveTracking}>Stop GPS</button>{hike.active ? <button className="danger" onClick={endHike}>End + log hike</button> : <button className="primary" onClick={startHike}>Start hike</button>}<button onClick={() => addMarker(current, 'Current spot')}>Mark spot</button><button className="danger" onClick={() => setSosMarker({ ...current, createdAt: new Date().toLocaleString() })}>SOS marker</button></div></section><section className="panel glass flow-card"><div className="section-title"><ListChecks/> Next checkpoints</div>{route.slice(0, 6).map(w => <button className="waypoint-button" key={w.id} onClick={() => setManualPosition({ lat: w.displayLat || w.lat, lon: w.displayLon || w.lon, label: w.name })}><strong>{w.name}</strong><span>{w.type} · {fmtMiles(haversineMiles(current, { lat: w.displayLat || w.lat, lon: w.displayLon || w.lon }), settings.units)}</span></button>)}</section></section>; }
+function ReviewFlow({ stats, hikeLog, setHikeLog, routePlans, markers, loadPlan, settings }) { return <section className="flow-grid"><section className="panel glass flow-card"><div className="section-title"><Activity/> 4 · Review</div><div className="mini-stats"><span>All-time {fmtMiles(stats.totalMiles, settings.units)}</span><span>Last {fmtMiles(stats.lastMiles, settings.units)}</span><span>{stats.totalCalories} cal</span><span>{markers.length} markers</span></div>{hikeLog.slice(0, 5).map(h => <article className="compact-row" key={h.id}><span><strong>{h.routeName}</strong><small>{h.miles} mi · {h.calories} cal</small></span></article>)}<button className="danger" onClick={() => setHikeLog([])}>Clear hike log</button></section><section className="panel glass flow-card"><div className="section-title"><GitBranch/> Route list</div>{routePlans.slice(0, 6).map(plan => <article className="compact-row" key={plan.id}><span><strong>{plan.name}</strong><small>{plan.estimatedMiles} mi · {plan.visibility}</small></span><button onClick={() => loadPlan(plan)}>Plan again</button></article>)}</section></section>; }
+function ProfileFlow({ settings, setSettings, profile, setProfile, weatherInput, setWeatherInput, weather, refreshWeather, saveProfile, clearData }) { const patchSettings = p => setSettings(prev => ({ ...prev, ...p })); const patchProfile = p => setProfile(prev => ({ ...prev, ...p })); const patchWeather = p => setWeatherInput(prev => ({ ...prev, ...p })); return <section className="flow-grid"><section className="panel glass flow-card"><div className="section-title"><Settings/> 5 · User profile</div><div className="compact-grid"><label>Name<input value={profile.displayName} onChange={e => patchProfile({ displayName: e.target.value })} /></label><label>Weight lb<input type="number" value={profile.weightLb} onChange={e => patchProfile({ weightLb: Number(e.target.value) })} /></label><label>Height in<input type="number" value={profile.heightIn} onChange={e => patchProfile({ heightIn: Number(e.target.value) })} /></label><label>Age<input type="number" value={profile.age} onChange={e => patchProfile({ age: Number(e.target.value) })} /></label><label>Pack lb<input type="number" value={profile.packWeightLb} onChange={e => patchProfile({ packWeightLb: Number(e.target.value) })} /></label><label>Pace mph<input type="number" step="0.1" value={settings.paceMph} onChange={e => patchSettings({ paceMph: Number(e.target.value) })} /></label></div><button className="primary" onClick={saveProfile}><Save size={16}/> Save profile</button></section><section className="panel glass flow-card"><div className="section-title"><ThermometerSun/> Weather · live/last-known</div><p className={`vitality risk-${weather.risk}`}>{weather.summary} · vitality {weather.vitality}%</p><small>Last updated: {weatherInput.updatedAt ? new Date(weatherInput.updatedAt).toLocaleString() : 'manual default'} · {weatherInput.source || 'manual estimate'}</small><div className="compact-grid"><label>Condition<input value={weatherInput.condition} onChange={e => patchWeather({ condition: e.target.value })} /></label><label>Temp °F<input type="number" value={weatherInput.tempF} onChange={e => patchWeather({ tempF: Number(e.target.value) })} /></label><label>Humidity<input type="number" value={weatherInput.humidity} onChange={e => patchWeather({ humidity: Number(e.target.value) })} /></label><label>AQI<input type="number" value={weatherInput.airQualityIndex} onChange={e => patchWeather({ airQualityIndex: Number(e.target.value) })} /></label></div><button onClick={refreshWeather}>Refresh last-known weather</button></section><section className="panel glass flow-card"><div className="section-title"><Map/> App settings</div><div className="compact-grid"><label>Map<select value={settings.mapLayer || 'osm'} onChange={e => patchSettings({ mapLayer: e.target.value })}><option value="osm">Stable map</option><option value="terrain">Terrain</option><option value="satellite">Satellite</option></select></label><label>Units<select value={settings.units} onChange={e => patchSettings({ units: e.target.value })}><option value="miles">Miles</option><option value="km">Kilometers</option></select></label><label>Theme<select value={settings.theme} onChange={e => patchSettings({ theme: e.target.value })}><option value="forest">Forest</option><option value="ember">Ember</option><option value="night">Night</option></select></label><label className="checkbox-row"><input type="checkbox" checked={settings.helpEnabled !== false} onChange={e => patchSettings({ helpEnabled: e.target.checked })} /> Show help indicators</label></div><button className="primary" onClick={saveProfile}>Save settings</button><button className="danger" onClick={clearData}>Clear local device data</button></section></section>; }
+function RouteMap({ area, route, current, destination, onPick, trailGeometry, sosMarker, navigation, settings = {}, markers = [] }) {
+  const mapRef = useRef(null); const mapElRef = useRef(null); const layerRef = useRef(null); const tileRef = useRef(null);
+  const trailSegments = getTrailSegments(trailGeometry); const trailPoints = getTrailPoints(trailGeometry);
+  const visibility = { ...DEFAULT_VISIBILITY, ...(settings.mapFeatureVisibility || {}) };
+  const routeVariants = area ? routeVariantsForArea(area, route) : [];
+  const shouldShowCurrent = !!current && (settings.showCurrentWhenFar || settings.fitMode === 'include-current' || (navigation?.snappedCurrent && navigation.snappedCurrent.distance < 2));
+  useEffect(() => { if (!mapElRef.current || mapRef.current) return; mapRef.current = L.map(mapElRef.current, { zoomControl: true, scrollWheelZoom: true, attributionControl: false }); setTimeout(() => mapRef.current?.invalidateSize(), 100); return () => { mapRef.current?.remove(); mapRef.current = null; }; }, []);
+  useEffect(() => { if (!mapRef.current) return; const layers = { terrain: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', osm: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' }; if (tileRef.current) tileRef.current.remove(); tileRef.current = L.tileLayer(layers[settings.mapLayer || 'osm'] || layers.osm, { maxZoom: 18, attribution: '' }); tileRef.current.addTo(mapRef.current); }, [settings.mapLayer]);
   useEffect(() => {
-    if (!mapElRef.current || mapRef.current) return;
-    mapRef.current = L.map(mapElRef.current, { zoomControl: true, scrollWheelZoom: true });
-    setTimeout(() => mapRef.current?.invalidateSize(), 100);
-    return () => { mapRef.current?.remove(); mapRef.current = null; };
-  }, []);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    const layers = {
-      terrain: { url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attribution: 'Map data © OpenStreetMap contributors, SRTM | OpenTopoMap CC-BY-SA' },
-      osm: { url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', attribution: '© OpenStreetMap contributors' },
-      satellite: { url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attribution: 'Tiles © Esri — source data providers' },
-    };
-    const selected = layers[settings.mapLayer || 'terrain'] || layers.terrain;
-    if (tileRef.current) tileRef.current.remove();
-    tileRef.current = L.tileLayer(selected.url, { maxZoom: selected.url.includes('opentopomap') ? 17 : 19, attribution: selected.attribution });
-    tileRef.current.addTo(mapRef.current);
-  }, [settings.mapLayer]);
-
-  useEffect(() => {
-    if (!mapRef.current) return;
-    if (layerRef.current) layerRef.current.remove();
-    const group = L.layerGroup();
-    const bounds = [];
-
-    trailSegments.forEach((coords) => {
-      const latLngs = coords.map(([lon, lat]) => [lat, lon]);
-      L.polyline(latLngs, { color: '#76ff6a', weight: 5, opacity: 0.95 }).bindPopup('Appalachian Trail geometry<br/>Source: OpenStreetMap / ODbL').addTo(group);
-      bounds.push(...latLngs);
-    });
-
-    route.forEach((w) => {
-      const lat = w.displayLat || w.lat;
-      const lon = w.displayLon || w.lon;
-      const marker = L.circleMarker([lat, lon], {
-        radius: destination?.id === w.id || destination?.name === w.name ? 10 : 7,
-        color: '#112317', weight: 2,
-        fillColor: destination?.id === w.id || destination?.name === w.name ? '#ffdb77' : '#bfe0a9', fillOpacity: 0.96,
-      });
-      const dist = current ? fmtMiles(haversineMiles(current, { lat, lon }), settings.units) : '—';
-      marker.bindPopup(`<strong>${w.name}</strong><br/>${w.type} · mile ${w.mile}<br/>From you: ${dist}<br/>Trail snap offset: ${w.snap ? fmtMiles(w.snap.distance, settings.units) : 'n/a'}<br/>${w.detail || ''}`);
-      marker.on('click', () => onPick?.(w));
-      marker.addTo(group);
-      bounds.push([lat, lon]);
-    });
-
-    if (shouldShowCurrent) {
-      const marker = L.circleMarker([current.lat, current.lon], { radius: 9, color: '#e8f5ff', weight: 3, fillColor: '#399cff', fillOpacity: 0.95 });
-      marker.bindPopup(`<strong>You / last known</strong><br/>${current.lat.toFixed(5)}, ${current.lon.toFixed(5)}<br/>Accuracy: ${current.accuracy ? Math.round(current.accuracy) + 'm' : 'manual/unknown'}<br/>Off route: ${navigation?.snappedCurrent ? fmtMiles(navigation.snappedCurrent.distance, settings.units) : '—'}`);
-      marker.addTo(group);
-      if (settings.fitMode === 'include-current') bounds.push([current.lat, current.lon]);
-    }
-
-    if (sosMarker) {
-      const sos = L.circleMarker([sosMarker.lat, sosMarker.lon], { radius: 13, color: '#ffe3dd', weight: 3, fillColor: '#ff4d3d', fillOpacity: 0.95 });
-      sos.bindPopup(`<strong>SOS / help marker</strong><br/>${sosMarker.createdAt || ''}<br/>${sosMarker.lat.toFixed(5)}, ${sosMarker.lon.toFixed(5)}`);
-      sos.addTo(group);
-      bounds.push([sosMarker.lat, sosMarker.lon]);
-    }
-
-    group.addTo(mapRef.current);
-    layerRef.current = group;
-    if (bounds.length) mapRef.current.fitBounds(bounds, { padding: [24, 24], maxZoom: 15 });
-    else mapRef.current.setView([44.57, -70.96], 13);
-    setTimeout(() => mapRef.current?.invalidateSize(), 100);
-  }, [trailGeometry, route, current, destination, sosMarker, shouldShowCurrent, settings.fitMode, settings.showCurrentWhenFar, settings.units]);
-
-  const fitTrail = () => {
-    if (!mapRef.current) return;
-    const pts = trailPoints.map(([lon, lat]) => [lat, lon]);
-    if (pts.length) mapRef.current.fitBounds(pts, { padding: [24, 24], maxZoom: 15 });
-  };
-  const fitMe = () => current && mapRef.current?.setView([current.lat, current.lon], 14);
-  const fitDestination = () => destination && mapRef.current?.setView([destination.displayLat || destination.lat, destination.displayLon || destination.lon], 15);
-  const offRouteText = current && navigation?.snappedCurrent ? `${fmtMiles(navigation.snappedCurrent.distance, settings.units)} from mapped route` : 'Current location hidden unless near route or enabled in settings.';
-
-  return <div className="map-choice real-map-wrap">
-    <div className="real-map" ref={mapElRef} />
-    <div className="map-toolbar">
-      <button onClick={fitTrail}>Fit trail</button>
-      <button onClick={fitDestination}>Destination</button>
-      <button onClick={fitMe} disabled={!current}>My location</button>
-      <span>{shouldShowCurrent ? `Current: ${offRouteText}` : `Current marker hidden: ${offRouteText}`}</span>
-    </div>
-    <div className="map-buttons">{route.map(w => <button key={w.id} onClick={() => onPick?.(w)}>{w.name}</button>)}</div>
-  </div>;
+    if (!mapRef.current) return; if (layerRef.current) layerRef.current.remove(); const group = L.layerGroup(); const bounds = [];
+    trailSegments.forEach((coords, idx) => { const latLngs = coords.map(([lon, lat]) => [lat, lon]); L.polyline(latLngs, { color: ROUTE_COLORS[idx % ROUTE_COLORS.length], weight: 5, opacity: 0.92 }).bindPopup(`Trail segment ${idx + 1}`).addTo(group); bounds.push(...latLngs); });
+    if (visibility.alternates !== false) routeVariants.forEach((variant) => { if ((variant.points || []).length > 1) { L.polyline(variant.points, { color: variant.color, weight: variant.kind === 'Primary' ? 6 : 4, opacity: variant.kind === 'Primary' ? 0.95 : 0.78, dashArray: variant.kind === 'Primary' ? null : '8 8' }).bindPopup(`<strong>${variant.name}</strong><br/>${variant.kind}<br/>${variant.note || 'Route variation for visual planning.'}`).addTo(group); bounds.push(...variant.points); } });
+    [...route, ...WATER_REPORTS].filter(item => featureVisible(item, visibility)).forEach((w) => { const lat = w.displayLat || w.lat; const lon = w.displayLon || w.lon; if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lon))) return; const isDest = destination?.id === w.id; const icon = L.divIcon({ className: 'map-feature-icon', html: `<span style="--pin:${featureColor(w, isDest ? '#ffdb77' : '#bfe0a9')}">${featureIcon(w)}</span>`, iconSize: [28, 28], iconAnchor: [14, 14], popupAnchor: [0, -10] }); const marker = L.marker([lat, lon], { icon }); marker.bindPopup(`<strong>${w.name}</strong><br/>${w.type || 'Marker'}${w.mile != null ? ` · mile ${w.mile}` : ''}<br/>${w.detail || ''}`); marker.on('click', () => onPick?.(w)); marker.addTo(group); bounds.push([lat, lon]); });
+    markers.forEach(m => { if (!Number.isFinite(Number(m.lat)) || !Number.isFinite(Number(m.lon))) return; const saved = L.circleMarker([Number(m.lat), Number(m.lon)], { radius: 8, color: '#09140d', weight: 2, fillColor: m.visibility === 'public' ? '#52c7ff' : '#e2a241', fillOpacity: 0.95 }); saved.bindPopup(`<strong>${m.name}</strong><br/>${m.category || 'Marker'} · ${m.visibility || 'private'}`); saved.addTo(group); bounds.push([Number(m.lat), Number(m.lon)]); });
+    if (shouldShowCurrent) { L.circleMarker([current.lat, current.lon], { radius: 9, color: '#e8f5ff', weight: 3, fillColor: '#399cff', fillOpacity: 0.95 }).bindPopup('Current/last-known position').addTo(group); if (settings.fitMode === 'include-current') bounds.push([current.lat, current.lon]); }
+    if (sosMarker) { L.circleMarker([sosMarker.lat, sosMarker.lon], { radius: 13, color: '#ffe3dd', weight: 3, fillColor: '#ff4d3d', fillOpacity: 0.95 }).bindPopup('SOS marker draft').addTo(group); bounds.push([sosMarker.lat, sosMarker.lon]); }
+    group.addTo(mapRef.current); layerRef.current = group; if (bounds.length) mapRef.current.fitBounds(bounds, { padding: [18, 18], maxZoom: 15 }); else mapRef.current.setView([44.57, -70.96], 13); setTimeout(() => mapRef.current?.invalidateSize(), 100);
+  }, [trailGeometry, route, current, destination, sosMarker, shouldShowCurrent, settings.fitMode, settings.showCurrentWhenFar, markers, JSON.stringify(visibility), area]);
+  const fitTrail = () => { const pts = trailPoints.map(([lon, lat]) => [lat, lon]); if (pts.length) mapRef.current?.fitBounds(pts, { padding: [18, 18], maxZoom: 15 }); };
+  return <div className="map-choice real-map-wrap"><div className="real-map" ref={mapElRef} /><div className="map-toolbar"><button onClick={fitTrail}>Fit trail</button><span>Color-coded routes + selectable icons. Water/fishing reports are planning aids; verify in field and check local rules.</span></div></div>;
 }
-
-function Metric({ icon: Icon, label, value, sub }) {
-  return <article className="metric glass"><Icon/><span>{label}</span><strong>{value}</strong><small>{sub}</small></article>;
-}
-
+function Metric({ icon: Icon, label, value, sub }) { return <article className="metric glass"><Icon/><span>{label}</span><strong>{value}</strong><small>{sub}</small></article>; }
 createRoot(document.getElementById('root')).render(<App />);

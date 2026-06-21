@@ -25,3 +25,14 @@ The Raspberry Pi Zero 2 WH should serve lightweight local web UI/data collection
 ## Safety note
 
 Plant identification and edible guidance must never be treated as guaranteed. Require uncertainty language and multiple-source/manual confirmation before consumption.
+
+## Vercel hosting
+
+This is a Vite React app. In Vercel use:
+
+- Framework preset: Vite
+- Install command: `npm install`
+- Build command: `npm run build`
+- Output directory: `dist`
+
+Map-Pi is local-first and browser-only right now. Public sync, shared routes, Supabase, weather APIs, and any private keys should be added behind Vercel/Supabase server-side boundaries later; do not put secrets in the client bundle.
