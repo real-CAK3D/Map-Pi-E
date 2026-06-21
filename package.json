@@ -1,5 +1,5 @@
 {
-  "name": "map-pi",
+  "name": "map-pi-e",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -10,6 +10,7 @@
     "smoke": "node scripts/smoke-map-pi.mjs"
   },
   "dependencies": {
+    "@supabase/supabase-js": "latest",
     "@vitejs/plugin-react": "latest",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",

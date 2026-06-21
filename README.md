@@ -1,6 +1,6 @@
-# Map-Pi
+# Map-Pi-E
 
-Map-Pi is CAK3D's Appalachian Trail buddy prototype for a Raspberry Pi Zero 2 WH + phone/PWA workflow.
+Map-Pi-E is CAK3D's Appalachian Trail planner prototype for a Raspberry Pi Zero 2 WH + phone/PWA workflow.
 
 ## Current prototype
 
@@ -35,4 +35,16 @@ This is a Vite React app. In Vercel use:
 - Build command: `npm run build`
 - Output directory: `dist`
 
-Map-Pi is local-first and browser-only right now. Public sync, shared routes, Supabase, weather APIs, and any private keys should be added behind Vercel/Supabase server-side boundaries later; do not put secrets in the client bundle.
+Map-Pi-E is local-first and browser-only right now. Public sync, shared routes, Supabase, weather APIs, and any private keys should be added behind Vercel/Supabase server-side boundaries later; do not put secrets in the client bundle.
+
+
+## Supabase
+
+Do not commit real Supabase secrets. Configure Vercel/local env with:
+
+```text
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=<publishable key only>
+```
+
+Apply `supabase/migrations/20260621_map_pi_e_records.sql` in the Supabase SQL editor before expecting cloud saves. Secret/service keys stay server-side only for future Edge Functions.

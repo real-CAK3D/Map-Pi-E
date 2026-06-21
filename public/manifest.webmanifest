@@ -1,15 +1,24 @@
 {
-  "name": "Map-Pi Trail Buddy",
-  "short_name": "Map-Pi",
-  "description": "CAK3D Appalachian Trail buddy with terrain maps, GPX tools, local SOS, and offline field shell.",
+  "name": "Map-Pi-E Trail Planner",
+  "short_name": "Map-Pi-E",
+  "description": "CAK3D Appalachian Trail planner with phone-first maps, forecasts, GPX tools, local SOS, offline shell, and optional Supabase sync.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#102016",
   "theme_color": "#1f4d2b",
-  "categories": ["navigation", "travel", "utilities"],
+  "categories": [
+    "navigation",
+    "travel",
+    "utilities"
+  ],
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
   ]
 }
